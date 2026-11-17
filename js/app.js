@@ -53,6 +53,26 @@ function paint() {
       heading.appendChild(actions);
     }
   }
+  // Disable edit controls for read-only viewers. Firestore rules are the
+  // enforcement boundary; these UI safeguards avoid accidental edit attempts.
+  const cloudRole = state.status?.mode === 'cloud' ? state.status.role : null;
+  if (cloudRole === 'viewer' || cloudRole === 'editor') {
+    const mutable = [
+      '[data-change="pay"]', '[data-change="recon"]', '[data-change="acct"]',
+      '[data-change="opex"]', '[data-action="crud-del"]',
+      '[data-action="pay-resolve"]', '[data-action="fx-suggest"]',
+      'form[data-form] input', 'form[data-form] select', 'form[data-form] button',
+    ];
+    if (cloudRole === 'viewer') {
+      app.querySelectorAll(mutable.join(',')).forEach((el) => { el.disabled = true; });
+    }
+    app.querySelectorAll('[data-change="cfmode"],[data-change="import-file"],[data-action="import-confirm"]')
+      .forEach((el) => { el.disabled = true; });
+    if (cloudRole === 'editor') {
+      app.querySelectorAll('form[data-form="settings"] :is(input, select, button), form[data-form="fxdef"] :is(input, select, button)')
+        .forEach((el) => { el.disabled = true; });
+    }
+  }
   document.title = `SVL Dự báo dòng tiền — ${TITLES[state.view] || ''}`.trim();
 }
 const TITLES = {
@@ -402,8 +422,12 @@ async function boot() {
     store = cloud ? await createCloudStore(firebaseConfig) : createLocalStore();
   } catch (err) {
     console.error(err);
-    store = createLocalStore();
-    setMessage(`Không kết nối được Firebase, đang dùng bộ nhớ trình duyệt: ${err.message}`, 'bad');
+    if (cloud) {
+      // Do not silently diverge into local-only data when shared mode fails.
+      app.textContent = 'Không thể khởi tạo kết nối Firebase. Dữ liệu chưa được đồng bộ. Hãy kiểm tra cấu hình và tải lại trang.';
+      return;
+    }
+    throw err;
   }
 
   store.onChange(onStore);
