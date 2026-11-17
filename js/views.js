@@ -80,10 +80,17 @@ const minBy = (arr, key) => arr.reduce((best, x) => (best == null || x[key] < be
 
 // Whole screen = tabs + status line + current view
 export function render(view, s) {
-  const body = s.status?.mode === 'cloud' && !s.user
+  const cloud = s.status?.mode === 'cloud';
+  const authorized = !!s.user && !!s.status?.role;
+  const recoveryImport = cloud && authorized && s.status?.role === 'admin'
+    && s.status?.sync === 'server' && s.recoveryImport;
+  const body = cloud && !authorized
     ? viewLogin(s)
-    : !s.ds
-      ? viewImport(s)
+    : cloud && !recoveryImport && (['loading', 'authorizing', 'migrating', 'import-error'].includes(s.status?.state)
+        || s.status?.sync !== 'server')
+      ? viewCloudWait(s)
+    : (recoveryImport || !s.ds || (cloud && s.status?.state === 'empty'))
+      ? (cloud && s.status?.role !== 'admin' ? viewCloudEmpty(s) : viewImport(s))
       : ({
       overview: overview,
       plan: plan,
@@ -114,7 +121,11 @@ function shell(view, s, body) {
   const st = s.status || {};
   const account = st.mode === 'cloud'
     ? (s.user
-      ? `<span class="pill ok">Đã đăng nhập</span><button data-action="logout">Đăng xuất</button>`
+      ? `<span class="pill">${st.sync === 'server' ? '● Realtime đã đồng bộ'
+        : st.sync === 'pending' ? '◌ Đang lưu lên Firestore'
+        : '⚠ Chưa xác nhận kết nối'}</span>
+        <span class="pill ok">${st.role ? 'Vai trò: ' + esc(st.role) : 'Đang xác thực'}</span>
+        <button data-action="logout">Đăng xuất</button>`
       : `<button class="primary" data-action="login">Đăng nhập Google</button>`)
     : `<span class="pill">Lưu trên trình duyệt</span>`;
   const msg = s.message ? `<div class="notice ${esc(s.messageKind || '')}">${esc(s.message)}</div>` : '';
@@ -141,19 +152,40 @@ function shell(view, s, body) {
 
 // ---------- sign-in (cloud mode) ----------
 function viewLogin(s) {
-  const msg = s.status?.state === 'error' ? `<div class="notice bad">${esc(s.status.message)}</div>` : '';
+  const signedIn = !!s.user;
+  const problem = s.status?.state === 'forbidden' || s.status?.state === 'error';
+  const msg = problem ? `<div class="notice bad">${esc(s.status.message)}</div>` : '';
   return `<div class="card narrow">
-    <h2>Đăng nhập để xem dữ liệu</h2>
-    <p>Dữ liệu dự báo dòng tiền được dùng chung. Chỉ các tài khoản Google đã được cấp quyền mới xem và sửa được.</p>
-    <button class="primary" data-action="login">Đăng nhập bằng Google</button>
+    <h2>${signedIn ? 'Đang kiểm tra quyền truy cập' : 'Đăng nhập để xem dữ liệu'}</h2>
+    <p>Chỉ những tài khoản Google được cấp quyền trong Firebase mới có thể truy cập dữ liệu SVL Cashflow.</p>
+    ${signedIn ? `<p class="small muted">Firebase UID của tài khoản: <code>${esc(s.user.uid)}</code></p>`
+      : '<button class="primary" data-action="login">Đăng nhập bằng Google</button>'}
     ${msg}
+    ${signedIn && !problem ? '<p>Đang tải quyền từ Firebase…</p>' : ''}
   </div>`;
 }
 
 // ---------- empty / import ----------
+function viewCloudWait(s) {
+  return `<div class="card narrow">
+    <h2>Đang đồng bộ Firestore Realtime</h2>
+    <p>${esc(s.status?.message || 'Đang chờ xác nhận từ máy chủ Firebase…')}</p>
+    <p class="muted">Không chỉnh sửa dữ liệu khi kết nối chưa được xác nhận. Bản nhập chưa hoàn tất có thể được khôi phục từ JSON sao lưu riêng tư.</p>
+    ${s.status?.state === 'migrating' && !s.status?.migrationActive
+      && s.status?.sync === 'server' && s.status?.role === 'admin'
+        ? '<button type="button" data-action="migration-retry">Khôi phục nhập dữ liệu từ bản sao lưu</button>' : ''}
+  </div>`;
+}
+function viewCloudEmpty(s) {
+  return `<div class="card narrow">
+    <h2>Firestore chưa có dữ liệu</h2>
+    <p>Chưa có bản Cashflow được Admin nhập. Người dùng Viewer và Editor không thể nhập thay dữ liệu chung.</p>
+  </div>`;
+}
 function viewImport(s) {
   const p = s.importPreview;
   const cloud = s.status?.mode === 'cloud';
+  const historyReady = !!(p && p.cashflowOpening != null && Object.keys(p.cashflowActuals || {}).length);
   const preview = p ? `<div class="card">
       <h3>Xem trước dữ liệu từ file</h3>
       <ul class="plain">
@@ -161,19 +193,26 @@ function viewImport(s) {
         <li>Khoản thu: <b>${fmtInt(p.receipts.length)}</b> · Giao dịch FX: <b>${fmtInt(p.fx.length)}</b> · Điều chỉnh NH: <b>${fmtInt(p.bankAdj.length)}</b></li>
         <li>Dòng đối chiếu: <b>${fmtInt(Object.keys(p.recon).length)}</b> · Dòng Opex: <b>${fmtInt(p.opex.length)}</b></li>
         <li>Ngày bắt đầu kế hoạch: ${fmtDate(p.settings.planStart) || 'tự động'} · Kết thúc: ${fmtDate(p.settings.planEnd)}</li>
+        <li>Lịch sử Cashflow: <b>${Object.keys(p.cashflowActuals || {}).length}</b> dòng · Số dư đầu kỳ: ${p.cashflowOpening != null ? 'Có' : 'Thiếu'}</li>
       </ul>
-      <p class="warn">${cloud ? 'Dữ liệu chung trên đám mây sẽ bị thay thế.' : 'Dữ liệu trên trình duyệt này sẽ bị thay thế.'}
-        Các thay đổi đã nhập tay (kể cả “đã xử lý lỗi”) sẽ mất.</p>
-      <button class="primary" data-action="import-confirm">Thay thế bằng dữ liệu này</button>
+      <p class="warn">${cloud ? 'Chỉ Admin được nhập dữ liệu vào Firestore trống. Không đóng tab trong khi chuyển dữ liệu.' : 'Thao tác này thay thế dữ liệu của trình duyệt.'}</p>
+      ${!historyReady ? '<p class="notice bad">Thiếu lịch sử Cashflow. Hãy chọn bản sao lưu JSON đầy đủ mới hoặc file Excel có Cashflow_Summary.</p>' : ''}
+      <button class="primary" data-action="import-confirm"${!historyReady || (cloud && s.status?.role !== 'admin') ? ' disabled' : ''}>Nhập dữ liệu lên ${cloud ? 'Firestore' : 'trình duyệt'}</button>
       <button data-action="import-cancel">Hủy</button>
     </div>` : '';
   return `<div class="card">
-      <h2>Nhập dữ liệu từ file Excel</h2>
+      <h2>Nhập dữ liệu Cashflow (Excel hoặc bản sao lưu JSON)</h2>
       <p>Chọn file <code>SVL_Payment_Ver6_Final_Ver_2.xlsm</code> (hoặc file cùng cấu trúc). Ứng dụng đọc các sheet
         Overview, Opening Balances, Payment Request List, Receipts, FX Transactions, Bank Adjustments,
         Reconciliation và Opex Control. Số tài khoản người nhận (cột W) không được nhập.</p>
+      <p class="warn">Một website chính, một nguồn dữ liệu Firestore. Khi nhập lần đầu, giữ bản sao lưu ở nơi an toàn và không đóng tab trong khi dữ liệu được ghi lên máy chủ.</p>
+      ${cloud && s.status?.role === 'admin' && (s.status?.state === 'empty' || s.recoveryImport)
+        ? '<div class="notice"><b>Chuyển từ Cashflow cũ:</b> Nếu bạn đang dùng đúng trình duyệt đã lưu dữ liệu trước đây, chọn nút dưới đây để xem trước và sao lưu đầy đủ trước khi nhập lên Firebase.<p><button type="button" data-action="legacy-preview">Chuyển dữ liệu từ trình duyệt này</button></p></div>'
+        : ''}
+      ${cloud && s.status?.role === 'admin' ? '<p class="muted small">Hoặc nhập bản sao lưu JSON đầy đủ/Excel gốc bên dưới. Không nhập trùng khi Firestore đã có dữ liệu.</p>' : ''}
+      ${s.ds && (!cloud || s.ds.importedAt) ? '<button type="button" data-action="backup-dataset">Sao lưu toàn bộ dữ liệu (JSON riêng tư)</button>' : ''}
       <div class="dropzone">
-        <input type="file" id="import-file" accept=".xlsm,.xlsx" data-change="import-file">
+        <input type="file" id="import-file" accept=".xlsm,.xlsx,.json" data-change="import-file">
       </div>
       <div class="status-line" id="import-status">${esc(s.importStatus || '')}</div>
     </div>${preview}`;
@@ -319,33 +358,11 @@ function details(s) {
   const key = days.some((d) => d.date === s.dayKey) ? s.dayKey : days[0].date;
   const d = days.find((x) => x.date === key);
   const options = days.map((x) => [x.date, fmtDate(x.date)]);
-  // Each currency's total for the day: a line's share is measured against its own currency only.
-  const curTotal = {};
-  for (const it of d.items) {
-    const c = (it.currency || '').toUpperCase();
-    curTotal[c] = (curTotal[c] || 0) + (Number(it.amount) || 0);
-  }
-  // Largest first, VND group before USD. Lines at or above 20% of their currency total are emphasised.
-  const rank = { VND: 0, USD: 1 };
-  const ordered = [...d.items].sort((a, b) =>
-    (rank[(a.currency || '').toUpperCase()] ?? 9) - (rank[(b.currency || '').toUpperCase()] ?? 9)
-    || (Number(b.amount) || 0) - (Number(a.amount) || 0));
-  const items = ordered.map((it) => {
-    const cur = (it.currency || '').toUpperCase();
-    const amt = Number(it.amount) || 0;
-    const share = curTotal[cur] ? amt / curTotal[cur] : 0;
-    const pct = Math.round(share * 100);
-    const hi = share >= 0.2;
-    const desc = esc(it.description || '');
-    return `<tr class="${hi ? 'row-hi' : ''}">
-      ${cell(`<span class="amt${hi ? ' hi' : ''}">${fmtAmt(amt, cur)}</span>`, 'num')}
-      ${cell(`<span class="ccy ${cur === 'USD' ? 'usd' : 'vnd'}">${esc(cur || '—')}</span>`)}
-      ${cell(`<span class="share"><span class="share-bar"><i style="width:${Math.min(100, pct)}%"></i></span><span class="num">${pct}%</span></span>`)}
-      ${cell(esc(it.item))}${cell(esc(it.payee || ''))}
-      ${cell(`<span class="desc" title="${desc}">${desc}</span>`)}
-      ${cell(esc(it.category || ''), 'muted')}${cell(esc(it.type || ''), 'muted')}${cell(esc(it.project || ''), 'muted')}
-    </tr>`;
-  }).join('');
+  const items = d.items.map((it) => `<tr>
+    ${cell(esc(it.item))}${cell(esc(it.type || ''), 'muted')}${cell(esc(it.payee || ''))}${cell(esc(it.description || ''))}
+    ${cell(esc(it.category || ''), 'muted')}${cell(esc(it.project || ''), 'muted')}
+    ${cell(money(Number(it.amount), it.currency))}${cell(esc(it.currency))}
+  </tr>`).join('');
   return `<div class="toolbar"><label>Ngày ${sel(key, options, 'data-change="day" name="day"')}</label></div>
   <div class="kpis">
     <div class="kpi"><div class="kl">Đầu ngày VND</div><div class="kv num">${fmtInt(d.openVnd)}</div></div>
@@ -355,10 +372,9 @@ function details(s) {
     <div class="kpi"><div class="kl">Chi trong ngày USD</div><div class="kv num">${fmt2(d.totalUsd)}</div></div>
     <div class="kpi"><div class="kl">Cuối ngày USD</div><div class="kv num${negClass(d.closeUsd)}">${fmt2(d.closeUsd)}</div></div>
   </div>
-  <p class="muted small">Sắp xếp từ lớn đến nhỏ trong từng loại tiền. Khoản từ 20% trở lên của tổng chi cùng loại tiền trong ngày được tô đậm.</p>
-  <div class="table-wrap"><table class="dense detail-table">
-    <thead><tr>${[hcell('Số tiền'), hcell('TT'), hcell('% ngày', 'num'), hcell('Mã'), hcell('Người nhận'), hcell('Nội dung'), hcell('Danh mục'), hcell('Loại'), hcell('Dự án')].join('')}</tr></thead>
-    <tbody>${items || `<tr><td colspan="9" class="muted">Không có khoản nào</td></tr>`}</tbody>
+  <div class="table-wrap"><table class="dense">
+    <thead><tr>${['Mã', 'Loại', 'Người nhận', 'Nội dung', 'Danh mục', 'Dự án', 'Số tiền', 'TT'].map((h) => hcell(h)).join('')}</tr></thead>
+    <tbody>${items || `<tr><td colspan="8" class="muted">Không có khoản nào</td></tr>`}</tbody>
   </table></div>`;
 }
 

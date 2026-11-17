@@ -2,7 +2,9 @@
 import { runAll, todayKey } from '../src/engine.js';
 import { buildQuality } from '../src/quality.js';
 import { importWorkbook } from '../src/importer.js';
-import { createLocalStore, createCloudStore } from './store.js';
+import { buildAiPackage } from '../src/ai-export.js';
+import { createLocalStore, createCloudStore, withDefaults, LOCAL_KEY } from './store.js';
+import { CASHFLOW_ACTUALS, CASHFLOW_OPENING, CASHFLOW_OPENING_STORED } from '../src/structure.js';
 import { render, CF_FILTER_DEFAULT, categoryOptions } from './views.js';
 import { validatePayment, validateCrud, replacedCounts, validatePlanRange } from '../src/validate.js';
 import { toNum, toText, toDate } from './format.js';
@@ -24,6 +26,8 @@ const state = {
   dayKey: null,
   importPreview: null,
   importStatus: '',
+  recoveryImport: false,
+  importSource: null,
   message: '',
   messageKind: '',
   status: { mode: 'local', state: 'empty', message: '' },
@@ -44,6 +48,37 @@ function recalc(ds) {
 // ---------- rendering ----------
 function paint() {
   app.innerHTML = render(state.view, state);
+  if (state.ds && state.calc && !state.calc.plan?.error) {
+    const heading = app.querySelector('.page-title');
+    if (heading) {
+      const actions = document.createElement('div');
+      actions.className = 'ai-tools';
+      actions.innerHTML = '<span class="muted small">AI: chỉ tải về, không tự gửi dữ liệu</span>'
+        + '<button type="button" data-action="ai-export-summary">Xuất AI tổng hợp</button>'
+        + '<button type="button" data-action="ai-export-detail">Xuất AI chi tiết</button>';
+      heading.appendChild(actions);
+    }
+  }
+  // Disable edit controls for read-only viewers. Firestore rules are the
+  // enforcement boundary; these UI safeguards avoid accidental edit attempts.
+  const cloudRole = state.status?.mode === 'cloud' ? state.status.role : null;
+  if (cloudRole === 'viewer' || cloudRole === 'editor') {
+    const mutable = [
+      '[data-change="pay"]', '[data-change="recon"]', '[data-change="acct"]',
+      '[data-change="opex"]', '[data-action="crud-del"]',
+      '[data-action="pay-resolve"]', '[data-action="fx-suggest"]',
+      'form[data-form] input', 'form[data-form] select', 'form[data-form] button',
+    ];
+    if (cloudRole === 'viewer') {
+      app.querySelectorAll(mutable.join(',')).forEach((el) => { el.disabled = true; });
+    }
+    app.querySelectorAll('[data-change="cfmode"],[data-change="import-file"],[data-action="import-confirm"]')
+      .forEach((el) => { el.disabled = true; });
+    if (cloudRole === 'editor') {
+      app.querySelectorAll('form[data-form="settings"] :is(input, select, button), form[data-form="fxdef"] :is(input, select, button)')
+        .forEach((el) => { el.disabled = true; });
+    }
+  }
   document.title = `SVL Dự báo dòng tiền — ${TITLES[state.view] || ''}`.trim();
 }
 const TITLES = {
@@ -93,6 +128,29 @@ async function onClick(e) {
         paint();
         window.scrollTo(0, 0);
         break;
+
+      case 'ai-export-summary':
+      case 'ai-export-detail': {
+        if (!state.ds || !state.calc) throw new Error('Chưa có dữ liệu Cashflow.');
+        const level = action === 'ai-export-detail' ? 'detail' : 'summary';
+        const note = level === 'detail'
+          ? 'File có danh sách chi tiết khoản thanh toán, nhưng không chứa tên đối tác và số tài khoản.'
+          : 'File chỉ có số liệu tổng hợp và cảnh báo dòng tiền.';
+        if (!window.confirm(note + '\\n\\nĐây là dữ liệu tài chính nội bộ SVL. Chỉ chia sẻ nếu được công ty cho phép. Tải file về?')) break;
+        const pack = buildAiPackage(state.ds, state.calc, state.Q, { level });
+        const blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'SVL_Cashflow_AI_' + level + '_' + new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+        setMessage('Đã tải file về máy; chưa tự động gửi dữ liệu tới ChatGPT.', 'ok');
+        paint();
+        break;
+      }
 
       case 'pay-page':
         state.pay.page = Math.max(0, (state.pay.page || 0) + Number(el.dataset.dir));
@@ -179,18 +237,99 @@ async function onClick(e) {
         await store.auth.signOut();
         break;
 
+      case 'backup-dataset': {
+        if (!state.ds) throw new Error('Chưa có dữ liệu để sao lưu.');
+        if (!window.confirm('Sao lưu toàn bộ dữ liệu Cashflow vào máy? File JSON có thể chứa tên đối tác, số tài khoản, và thông tin nội bộ. Hãy lưu file an toàn, không đưa lên GitHub hoặc chia sẻ công khai.')) break;
+        const payload = { ...state.ds, _backupFormat: 'svl.cashflow.backup.v1',
+          _exportedAt: new Date().toISOString() };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json;charset=utf-8'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'SVL_Cashflow_PRIVATE_Backup_' + new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+        setMessage('Đã xuất bản sao dữ liệu. File vẫn chỉ nằm trên thiết bị của bạn.', 'ok');
+        paint();
+        break;
+      }
+
+      case 'migration-retry': {
+        if (state.status?.mode !== 'cloud' || state.status?.role !== 'admin' ||
+            state.status?.sync !== 'server' || state.status?.migrationActive)
+          throw new Error('Chưa đủ điều kiện để khôi phục lần nhập.');
+        if (!window.confirm('Chỉ tiếp tục nếu lần nhập trước đã dừng và không còn tab nào đang nhập dữ liệu. Bạn đã xác nhận điều đó?')) break;
+        state.recoveryImport = true;
+        state.view = 'import';
+        paint();
+        break;
+      }
+
+      case 'legacy-preview': {
+        if (state.status?.mode !== 'cloud' || state.status?.role !== 'admin'
+            || state.status?.sync !== 'server'
+            || (state.status?.state !== 'empty' && !state.recoveryImport)) {
+          throw new Error('Chỉ Admin được chuyển dữ liệu khi Firestore chưa có dữ liệu.');
+        }
+        const raw = window.localStorage.getItem(LOCAL_KEY);
+        if (!raw) throw new Error('Không tìm thấy Cashflow cũ trên trình duyệt này. Chọn bản sao lưu JSON hoặc file Excel gốc để nhập.');
+        let existing;
+        try { existing = JSON.parse(raw); }
+        catch { throw new Error('Dữ liệu Cashflow cũ không phải JSON hợp lệ. Không thay đổi dữ liệu đã lưu.'); }
+        if (!existing?.settings?.openingDate || !existing?.settings?.planEnd
+          || !Array.isArray(existing.payments) || !Array.isArray(existing.receipts)
+          || !Array.isArray(existing.accounts) || !Array.isArray(existing.fx)
+          || !Array.isArray(existing.bankAdj) || !Array.isArray(existing.opex)) {
+          throw new Error('Dữ liệu trình duyệt không đúng cấu trúc. Hãy dùng bản sao lưu JSON đầy đủ.');
+        }
+        const history = existing.cashflowActuals && Object.keys(existing.cashflowActuals).length
+          ? existing.cashflowActuals : CASHFLOW_ACTUALS;
+        const opening = existing.cashflowOpening ?? CASHFLOW_OPENING;
+        if (!history || !Object.keys(history).length || opening == null)
+          throw new Error('Thiếu dữ liệu Cashflow lịch sử. Hãy chọn bản sao lưu đầy đủ hoặc Excel gốc.');
+        state.importPreview = withDefaults({
+          ...existing,
+          cashflowActuals: history,
+          cashflowOpening: opening,
+          cashflowOpeningStored: Object.keys(existing.cashflowOpeningStored || {}).length
+            ? existing.cashflowOpeningStored : CASHFLOW_OPENING_STORED,
+        });
+        state.importSource = 'legacy-browser';
+        state.importStatus = 'Đã tìm thấy dữ liệu trên trình duyệt này và bổ sung lịch sử Cashflow. Kiểm tra số lượng, sau đó xác nhận để sao lưu riêng và chuyển lên Firebase.';
+        paint();
+        break;
+      }
+
       case 'import-confirm': {
-        const prev = state.ds?.settings || {};
+        if (state.status?.mode === 'cloud' && state.status?.role !== 'admin')
+          throw new Error('Chỉ Admin được thay thế dữ liệu chung.');
+        if (!state.importPreview) throw new Error('Chưa chọn dữ liệu để nhập.');
+        if (state.status?.mode === 'cloud' && !window.confirm('CẢNH BÁO: Bạn chuẩn bị nhập dữ liệu đã sao lưu vào Firestore dùng chung. Đây là lần nhập ban đầu vào database trống. Giữ bản sao lưu an toàn và không đóng tab cho đến khi hoàn tất. Tiếp tục?')) break;
         const next = state.importPreview;
-        const total = Object.values(next).reduce((a, v) => a + (Array.isArray(v) ? v.length : 0), 0);
-        const cur = replacedCounts(state.ds || {});
-        const lost = `Sẽ bị thay: ${cur.payments} khoản thanh toán (trong đó ${cur.manualPayments} khoản nhập tay), ${cur.receipts} khoản thu, ${cur.fx} giao dịch FX, ${cur.bankAdj} điều chỉnh NH.`;
-        if (!confirm(`Thay thế TOÀN BỘ dữ liệu hiện có bằng ${total.toLocaleString('vi-VN')} bản ghi từ file này?\n\n${lost}\nThao tác không hoàn tác được.`)) break;
-        next.settings = { ...next.settings, cfSourceLinks: !!prev.cfSourceLinks, todayOverride: prev.todayOverride ?? null };
+        if (state.importSource === 'legacy-browser') {
+          const backup = { ...next, _backupFormat: 'svl.cashflow.backup.v1',
+            _exportedAt: new Date().toISOString() };
+          const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'SVL_Cashflow_PRIVATE_FULL_' + new Date().toISOString().slice(0, 10) + '.json';
+          document.body.appendChild(link); link.click(); link.remove();
+          window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+          if (!window.confirm('Đã yêu cầu tải bản sao lưu ĐẦY ĐỦ xuống máy. Hãy kiểm tra Downloads và bảo quản file riêng tư. Bạn xác nhận đã lưu được file và muốn nhập lên Firestore?')) break;
+        }
+        if (state.status?.mode !== 'cloud') {
+          const prev = state.ds?.settings || {};
+          next.settings = { ...next.settings, cfSourceLinks: !!prev.cfSourceLinks, todayOverride: prev.todayOverride ?? null };
+        }
         await store.replaceAll(next);
         state.importPreview = null;
+        state.importSource = null;
         state.importStatus = '';
-        setMessage('Đã nhập dữ liệu từ file Excel.', 'ok');
+        state.recoveryImport = false;
+        setMessage('Đã xác nhận nhập dữ liệu vào Firestore. Đợi màn hình báo đã đồng bộ.', 'ok');
         state.view = 'overview';
         location.hash = 'overview';
         paint();
@@ -198,6 +337,7 @@ async function onClick(e) {
       }
 
       case 'import-cancel':
+        state.importSource = null;
         state.importPreview = null;
         state.importStatus = '';
         paint();
@@ -224,11 +364,30 @@ async function onChange(e) {
         if (!file) break;
         state.importStatus = `Đang đọc ${file.name}…`;
         paint();
-        const XLSX = window.XLSX;
-        if (!XLSX) throw new Error('Chưa tải thư viện đọc Excel (vendor/xlsx.full.min.js).');
-        const ds = importWorkbook(XLSX, await file.arrayBuffer());
+        let ds;
+        if (/\.json$/i.test(file.name)) {
+          if (file.size > 25 * 1024 * 1024) throw new Error('File JSON vượt giới hạn 25 MB.');
+          const data = JSON.parse(await file.text());
+          if (!data || typeof data !== 'object' || !data.settings ||
+              typeof data.settings.openingDate !== 'string' ||
+              typeof data.settings.planEnd !== 'string' ||
+              !Array.isArray(data.payments) || !Array.isArray(data.receipts) ||
+              !Array.isArray(data.accounts) || !Array.isArray(data.fx) ||
+              !Array.isArray(data.bankAdj) || !Array.isArray(data.opex)) {
+            throw new Error('File JSON không đúng cấu trúc bản sao lưu SVL Cashflow.');
+          }
+          ds = withDefaults(data);
+        } else {
+          const XLSX = window.XLSX;
+          if (!XLSX) throw new Error('Chưa tải thư viện đọc Excel (vendor/xlsx.full.min.js).');
+          ds = importWorkbook(XLSX, await file.arrayBuffer());
+        }
         state.importPreview = ds;
-        state.importStatus = `Đã đọc ${file.name}. Kiểm tra bên dưới rồi xác nhận.`;
+        state.importSource = 'uploaded-file';
+        const historyCount = Object.keys(ds.cashflowActuals || {}).length;
+        state.importStatus = historyCount && ds.cashflowOpening != null
+          ? `Đã đọc ${file.name}; có ${historyCount} dòng lịch sử Cashflow. Kiểm tra trước khi nhập.`
+          : 'Bản sao lưu chưa có lịch sử Cashflow. Hãy tải bản JSON đầy đủ mới từ trang sao lưu.';
         paint();
         break;
       }
@@ -408,13 +567,17 @@ async function onSubmit(e) {
 
 // ---------- boot ----------
 async function boot() {
-  const cloud = !!firebaseConfig?.apiKey && !String(firebaseConfig.apiKey).startsWith('REPLACE');
+  const cloud = true; // Canonical Cashflow site; only Firestore is writable.
   try {
     store = cloud ? await createCloudStore(firebaseConfig) : createLocalStore();
   } catch (err) {
     console.error(err);
-    store = createLocalStore();
-    setMessage(`Không kết nối được Firebase, đang dùng bộ nhớ trình duyệt: ${err.message}`, 'bad');
+    if (cloud) {
+      // Do not silently diverge into local-only data when shared mode fails.
+      app.textContent = 'Không thể khởi tạo kết nối Firebase. Dữ liệu chưa được đồng bộ. Hãy kiểm tra cấu hình và tải lại trang.';
+      return;
+    }
+    throw err;
   }
 
   store.onChange(onStore);
@@ -445,9 +608,7 @@ async function boot() {
   });
   if (!cloud) state.user = null;
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service worker không đăng ký được', err));
-  }
+  // No service worker registered for isolated deployment.
 }
 
 boot();

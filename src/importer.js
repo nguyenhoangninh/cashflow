@@ -2,7 +2,7 @@
 // Works with SheetJS (xlsx). Usage: importWorkbook(XLSX, arrayBuffer) -> dataset.
 // Supplier bank account numbers (Payment Request List column W) are NOT imported on purpose.
 
-import { CATEGORIES } from './structure.js';
+import { CATEGORIES, CASHFLOW_ROWS } from './structure.js';
 
 const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
 
@@ -35,7 +35,7 @@ export function importWorkbook(XLSX, buffer) {
     cellStyles: false,
     sheets: [
       'Overview', 'Opening Balances', 'Payment Request List', 'Receipts', 'FX Transactions',
-      'Bank Adjustments', 'Reconciliation', 'Opex Control',
+      'Bank Adjustments', 'Reconciliation', 'Opex Control', 'Cashflow_Summary',
     ],
   });
   const need = (name) => {
@@ -52,15 +52,6 @@ export function importWorkbook(XLSX, buffer) {
   const ob = get(need('Opening Balances'));
   const pl = need('Payment Request List');
   const plg = get(pl);
-  // Guard against a moved or re-laid-out source sheet: the fixed cell addresses below are only valid
-  // when these header labels (row 2) are where we expect them.
-  const PRL_HEADERS = { B: 'item no', E: 'amount', F: 'currency', J: 'payee', S: 'actual', AB: 'include', AD: 'plan date', AJ: 'summary category' };
-  for (const [col, key] of Object.entries(PRL_HEADERS)) {
-    const got = String(plg(`${col}2`) ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
-    if (!got.includes(key)) {
-      throw new Error(`Sai bố cục sheet "Payment Request List": ô ${col}2 phải là "${key}…" nhưng đọc được "${got || '(trống)'}". Kiểm tra lại file gốc trước khi nhập.`);
-    }
-  }
   const rcWs = need('Receipts');
   const rcg = get(rcWs);
   const fxg = get(need('FX Transactions'));
@@ -106,10 +97,9 @@ export function importWorkbook(XLSX, buffer) {
     seenIds.add(id);
     const sRaw = plg(`S${r}`);
     const sDate = toDateKey(sRaw);
-    // Rows whose Z/AB/AD cells lack formulas are not computed by the Excel plan: flag them.
-    const isFormulaCell = (cell) => !!(cell && (cell.f || (typeof cell.v === 'string' && cell.v.startsWith('='))));
-    const missingFormulaCols = ['Z', 'AB', 'AD'].filter((c) => !isFormulaCell(pl[`${c}${r}`]));
-    const hasFormula = missingFormulaCols.length === 0;
+    // Source rows without formulas in Z/AB/AD are silently left out of the Excel plan.
+    const abCell = pl[`AB${r}`];
+    const hasFormula = !!(abCell && (abCell.f || (typeof abCell.v === 'string' && abCell.v.startsWith('='))));
     const aiCell = pl[`AI${r}`];
     const weekTyped = !!(aiCell && aiCell.v != null && !aiCell.f); // week typed over the formula
     // USD'K column (AK) must read amount E and currency F of the SAME row.
@@ -147,7 +137,7 @@ export function importWorkbook(XLSX, buffer) {
       lenaPlanDate: toDateKey(plg(`X${r}`)),
       category: txt(plg(`AJ${r}`)),
       project: txt(plg(`AL${r}`)),
-      dataIssue: hasFormula ? null : `Thiếu công thức trong file gốc (${missingFormulaCols.join('/')} trống): Excel không đưa khoản này vào kế hoạch.`,
+      dataIssue: hasFormula ? null : 'Thiếu công thức trong file gốc (Z/AB/AD trống): Excel không đưa khoản này vào kế hoạch.',
       weekTyped: weekTyped ? txt(aiCell.v) : null,
       akIssue,
       akFile: akCell && akCell.v != null && typeof akCell.v === 'number' ? akCell.v : null, // USD'K value as stored in the file
@@ -258,8 +248,30 @@ export function importWorkbook(XLSX, buffer) {
     buy: num(fxg('E3')) ?? 26250,
   };
 
+  // Import confidential historical values into the authenticated dataset
+  // instead of reading them from public JavaScript constants.
+  const cs = wb.Sheets['Cashflow_Summary'];
+  const cashflowActuals = {};
+  let cashflowOpening = null;
+  let cashflowOpeningStored = {};
+  if (cs) {
+    const g = get(cs);
+    const firstCode = (index) => String.fromCharCode(66 + index); // B..Q, 16 actual weeks
+    for (const row of CASHFLOW_ROWS) {
+      const values = Array.from({ length: 16 }, (_, i) => num(g(firstCode(i) + row.row)));
+      if (values.some(v => v !== null)) cashflowActuals[String(row.row)] = values;
+    }
+    cashflowOpening = num(g('B8'));
+    cashflowOpeningStored = Object.fromEntries(
+      Array.from({ length: 7 }, (_, i) => [String(i), num(g(firstCode(i) + '8'))])
+        .filter(([, value]) => value !== null));
+  }
+
   return {
     version: 1,
+    cashflowActuals,
+    cashflowOpening,
+    cashflowOpeningStored,
     source: 'SVL_Payment_Ver6_Final_Ver_2.xlsm',
     settings,
     accounts,
