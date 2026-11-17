@@ -22,6 +22,7 @@ const state = {
   dayKey: null,
   importPreview: null,
   importStatus: '',
+  recoveryImport: false,
   message: '',
   messageKind: '',
   status: { mode: 'local', state: 'empty', message: '' },
@@ -237,6 +238,17 @@ async function onClick(e) {
         break;
       }
 
+      case 'migration-retry': {
+        if (state.status?.mode !== 'cloud' || state.status?.role !== 'admin' ||
+            state.status?.sync !== 'server' || state.status?.migrationActive)
+          throw new Error('Chưa đủ điều kiện để khôi phục lần nhập.');
+        if (!window.confirm('Chỉ tiếp tục nếu lần nhập trước đã dừng và không còn tab nào đang nhập dữ liệu. Bạn đã xác nhận điều đó?')) break;
+        state.recoveryImport = true;
+        state.view = 'import';
+        paint();
+        break;
+      }
+
       case 'import-confirm': {
         if (state.status?.mode === 'cloud' && state.status?.role !== 'admin')
           throw new Error('Chỉ Admin được thay thế dữ liệu chung.');
@@ -250,6 +262,7 @@ async function onClick(e) {
         await store.replaceAll(next);
         state.importPreview = null;
         state.importStatus = '';
+        state.recoveryImport = false;
         setMessage('Đã xác nhận nhập dữ liệu vào Firestore. Đợi màn hình báo đã đồng bộ.', 'ok');
         state.view = 'overview';
         location.hash = 'overview';
