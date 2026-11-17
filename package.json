@@ -1,0 +1,17 @@
+{
+  "name": "svl-cashflow-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dự báo dòng tiền và kế hoạch thanh toán SVL — bản web (GitHub Pages + Firebase)",
+  "scripts": {
+    "test": "node --test",
+    "serve": "python3 -m http.server 8080"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "xlsx": "0.18.5"
+  }
+}

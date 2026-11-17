@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// Only the Google accounts listed below can read or change the forecast data.
+// Replace the placeholder addresses with the real accounts before deploying.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function allowedUser() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          'finance-user-1@example.com',
+          'finance-user-2@example.com'
+        ];
+    }
+
+    match /{document=**} {
+      allow read, write: if allowedUser();
+    }
+  }
+}
