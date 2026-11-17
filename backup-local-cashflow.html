@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>SVL Cashflow | Sao lưu dữ liệu cục bộ</title>
+<style>
+:root {font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color-scheme:light;color:#23343e;background:#f4f7f8}
+* {box-sizing:border-box} body{margin:0;padding:25px 15px}main{max-width:660px;margin:auto}
+h1{font-size:23px;margin:0 0 6px}h2{font-size:16px}
+.card{background:white;border:1px solid #d6e0e4;border-radius:14px;padding:23px;margin:0 0 16px}
+.muted{color:#63727e}.small{font-size:13px}p{line-height:1.6}
+button{padding:12px 18px;border-radius:9px;background:#155947;color:white;border:0;font-size:15px;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+#status{white-space:pre-wrap;overflow-wrap:anywhere;background:#f1f4f5;padding:13px;border-radius:9px}
+.alert{padding:12px 15px;border-left:4px solid #e9a53b;background:#fffaee;border-radius:5px}
+code{font-family:ui-monospace,Consolas,monospace}
+</style>
+</head>
+<body>
+<main>
+<section class="card">
+<h1>SVL Cashflow — Sao lưu dữ liệu</h1>
+<p class="muted">Tải bản sao lưu dữ liệu đang lưu trong trình duyệt này trước khi kích hoạt Firebase Realtime.</p>
+<p class="alert"><strong>Chú ý bảo mật:</strong> File sao lưu chứa dữ liệu tài chính nội bộ đầy đủ, có thể gồm tên đối tác và thông tin tài khoản. Chỉ lưu trên thiết bị tin cậy. Không gửi file lên GitHub hoặc chia sẻ công khai.</p>
+<h2>Kiểm tra dữ liệu cục bộ</h2>
+<p id="status" role="status">Đang kiểm tra dữ liệu trong trình duyệt…</p>
+<button id="download" type="button" disabled>Tải bản sao lưu JSON</button>
+<p class="small muted">Chỉ tải xuống khi bạn nhấn nút và xác nhận. Trang không gọi API, không đăng nhập, không truy cập Firebase và không tự gửi dữ liệu ra bên ngoài.</p>
+</section>
+<section class="card">
+<h2>Sau khi tải file</h2>
+<p>Giữ bản sao lưu này ở nơi an toàn, không xóa dữ liệu trình duyệt và không chuyển website sang Firebase cho đến khi chúng ta đối chiếu dữ liệu nguồn.</p>
+<p class="small muted">Dữ liệu trên trình duyệt khác hoặc máy khác sẽ không xuất hiện ở đây. Hãy mở trang này trên chính trình duyệt bạn đang dùng với website Cashflow.</p>
+</section>
+</main>
+<script>
+"use strict";
+(() => {
+  const KEY = "svl-cashflow-dataset-v1";
+  const message = document.getElementById("status");
+  const button = document.getElementById("download");
+  let data = null;
+  try {
+    const raw = window.localStorage.getItem(KEY);
+    if (!raw) {
+      message.textContent = "Không tìm thấy dữ liệu Cashflow cục bộ trên trình duyệt này. Bạn hãy mở trang sao lưu trên cùng trình duyệt/profile đã sử dụng Cashflow trước đây.";
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !parsed.settings
+      || !Array.isArray(parsed.payments) || !Array.isArray(parsed.receipts)) {
+      message.textContent = "Dữ liệu hiện tại không đúng cấu trúc Cashflow. Chưa tạo file; vui lòng kiểm tra nguồn dữ liệu trước.";
+      return;
+    }
+    data = parsed;
+    message.textContent = "Đã tìm thấy dữ liệu Cashflow cục bộ.\n"
+      + "Payment Requests: " + data.payments.length + " dòng\n"
+      + "Receipts: " + data.receipts.length + " dòng\n"
+      + "Ngày nhập dữ liệu gần nhất: " + (data.importedAt || "(không xác định)") + "\n"
+      + "Dữ liệu chưa được gửi đi.";
+    button.disabled = false;
+  } catch (_) {
+    message.textContent = "Không thể đọc dữ liệu từ localStorage. Có thể trình duyệt đang chặn lưu trữ hoặc dữ liệu không hợp lệ.";
+    return;
+  }
+  button.addEventListener("click", () => {
+    if (!data) return;
+    if (!window.confirm("Xuất TOÀN BỘ dữ liệu SVL Cashflow ra file trên thiết bị?\n\nĐây là thông tin tài chính bí mật. KHÔNG đưa file lên GitHub hoặc chia sẻ công khai.")) return;
+    const backup = { ...data, _backupFormat: "svl.cashflow.backup.v1", _exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "SVL_Cashflow_PRIVATE_Backup_" + new Date().toISOString().slice(0, 10) + ".json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    message.textContent += "\nĐã yêu cầu tải file. Hãy kiểm tra thư mục Downloads và lưu file ở nơi được bảo vệ.";
+  });
+})();
+</script>
+</body>
+</html>
