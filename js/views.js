@@ -21,6 +21,31 @@ export const TABS = [
   ['import', 'Nhập file'],
 ];
 
+// Navigation groups shown in the sidebar (same ids as TABS).
+export const GROUPS = [
+  ['Dự báo', ['overview', 'plan', 'details', 'weekly', 'cashflow']],
+  ['Dữ liệu', ['payments', 'receipts', 'fx', 'bank', 'recon', 'accounts', 'opex']],
+  ['Hệ thống', ['quality', 'import']],
+];
+
+const TAB_LABEL = Object.fromEntries(TABS);
+const PAGE_INFO = {
+  overview: ['Tổng quan', 'Số dư đầu kỳ, số ngày dưới ngưỡng và các chỉ số chính của kế hoạch dòng tiền.'],
+  plan: ['Kế hoạch ngày', 'Số dư VND và USD theo từng ngày, kèm cảnh báo và gợi ý giao dịch FX.'],
+  details: ['Chi tiết ngày', 'Các khoản chi trong một ngày được chọn.'],
+  payments: ['Thanh toán', 'Danh sách Payment Request: ngày dự kiến, trạng thái đưa vào kế hoạch và danh mục.'],
+  receipts: ['Thu', 'Các khoản thu dự kiến theo sheet Receipts.'],
+  fx: ['Giao dịch FX', 'Các giao dịch mua bán ngoại tệ đã thực hiện hoặc dự kiến.'],
+  bank: ['Điều chỉnh ngân hàng', 'Các khoản điều chỉnh theo sao kê ngân hàng, dùng để tính số dư cuối tuần.'],
+  recon: ['Đối chiếu', 'So sánh số dư thực tế với kế hoạch theo từng ngày.'],
+  accounts: ['Số dư đầu kỳ', 'Số dư đầu theo tài khoản và tỷ giá mặc định.'],
+  weekly: ['Kế hoạch tuần', 'Thu, chi và số dư cuối theo từng tuần.'],
+  cashflow: ['Dòng tiền', "Báo cáo dòng tiền theo tuần, đơn vị USD'000K."],
+  opex: ['Opex', "Chi phí hoạt động theo tháng, đơn vị USD'000K."],
+  quality: ['Kiểm tra dữ liệu', 'Các khác biệt giữa file gốc và ứng dụng, cùng các dòng dữ liệu nguồn cần xem.'],
+  import: ['Nhập file', 'Tải dữ liệu từ file Excel để thay thế dữ liệu hiện tại.'],
+};
+
 const PAGE_SIZE = 150;
 const PAY_INCLUDE = ['Yes', 'Paid', 'Review', 'Lỗi dữ liệu', 'No', '—'];
 // Subtotal label of Cashflow row 35: items tagged with it would never reach the Cashflow.
@@ -62,24 +87,38 @@ export function render(view, s) {
       quality: quality,
       import: viewImport,
     }[view] || overview)(s);
-  return `${header(s)}<section class="screen">${body}</section>`;
+  return shell(view, s, body);
 }
 
-function header(s) {
-  const tabs = TABS.map(([id, label]) =>
-    `<button class="tab${s.view === id ? ' active' : ''}" data-action="nav" data-view="${id}">${esc(label)}</button>`).join('');
+// Application frame: sidebar navigation, page title and account area, then the screen.
+function shell(view, s, body) {
+  const nav = GROUPS.map(([label, ids]) => `<div class="nav-group">
+      <div class="nav-label">${esc(label)}</div>
+      ${ids.map((id) => `<button class="nav-item${view === id ? ' active' : ''}" data-action="nav" data-view="${id}"${view === id ? ' aria-current="page"' : ''}>${esc(TAB_LABEL[id])}</button>`).join('')}
+    </div>`).join('');
   const st = s.status || {};
-  const badge = st.mode === 'cloud'
-    ? (s.user ? `<span class="pill ok">Đã đăng nhập</span> <button data-action="logout">Đăng xuất</button>`
+  const account = st.mode === 'cloud'
+    ? (s.user
+      ? `<span class="pill ok">Đã đăng nhập</span><button data-action="logout">Đăng xuất</button>`
       : `<button class="primary" data-action="login">Đăng nhập Google</button>`)
     : `<span class="pill">Lưu trên trình duyệt</span>`;
   const msg = s.message ? `<div class="notice ${esc(s.messageKind || '')}">${esc(s.message)}</div>` : '';
   const err = st.state === 'error' ? `<div class="notice bad">${esc(st.message)}</div>` : '';
-  return `<header class="topbar">
-    <div class="brand">SVL · Dự báo dòng tiền</div>
-    <nav class="tabs">${tabs}</nav>
-    <div class="auth">${badge}</div>
-  </header>${msg}${err}`;
+  const [title, desc] = PAGE_INFO[view] || PAGE_INFO.overview;
+  return `<div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">S</div><div><div class="brand-name">SVL Cashflow</div><div class="brand-sub">Dự báo dòng tiền</div></div></div>
+      <nav class="nav" aria-label="Điều hướng">${nav}</nav>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <div class="page-title"><h1>${esc(title)}</h1><p>${esc(desc)}</p></div>
+        <div class="topbar-actions">${account}</div>
+      </header>
+      <div class="flash">${msg}${err}</div>
+      <section class="screen">${body}</section>
+    </div>
+  </div>`;
 }
 
 // ---------- sign-in (cloud mode) ----------
@@ -115,8 +154,10 @@ function viewImport(s) {
       <p>Chọn file <code>SVL_Payment_Ver6_Final_Ver_2.xlsm</code> (hoặc file cùng cấu trúc). Ứng dụng đọc các sheet
         Overview, Opening Balances, Payment Request List, Receipts, FX Transactions, Bank Adjustments,
         Reconciliation và Opex Control. Số tài khoản người nhận (cột W) không được nhập.</p>
-      <input type="file" id="import-file" accept=".xlsm,.xlsx" data-change="import-file">
-      <div class="status" id="import-status">${esc(s.importStatus || '')}</div>
+      <div class="dropzone">
+        <input type="file" id="import-file" accept=".xlsm,.xlsx" data-change="import-file">
+      </div>
+      <div class="status-line" id="import-status">${esc(s.importStatus || '')}</div>
     </div>${preview}`;
 }
 
