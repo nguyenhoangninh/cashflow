@@ -69,10 +69,15 @@ const minBy = (arr, key) => arr.reduce((best, x) => (best == null || x[key] < be
 
 // Whole screen = tabs + status line + current view
 export function render(view, s) {
-  const body = s.status?.mode === 'cloud' && (!s.user || !s.status?.role)
+  const cloud = s.status?.mode === 'cloud';
+  const authorized = !!s.user && !!s.status?.role;
+  const body = cloud && !authorized
     ? viewLogin(s)
-    : !s.ds
-      ? viewImport(s)
+    : cloud && (['loading', 'authorizing', 'migrating'].includes(s.status?.state)
+        || s.status?.sync !== 'server')
+      ? viewCloudWait(s)
+    : (!s.ds || (cloud && s.status?.state === 'empty'))
+      ? (cloud && s.status?.role !== 'admin' ? viewCloudEmpty(s) : viewImport(s))
       : ({
       overview: overview,
       plan: plan,
@@ -102,7 +107,11 @@ function shell(view, s, body) {
   const st = s.status || {};
   const account = st.mode === 'cloud'
     ? (s.user
-      ? `<span class="pill ok">${s.status?.role ? 'Vai trò: ' + esc(s.status.role) : 'Đang xác thực'}</span><button data-action="logout">Đăng xuất</button>`
+      ? `<span class="pill">${st.sync === 'server' ? '● Realtime đã đồng bộ'
+        : st.sync === 'pending' ? '◌ Đang lưu lên Firestore'
+        : '⚠ Chưa xác nhận kết nối'}</span>
+        <span class="pill ok">${st.role ? 'Vai trò: ' + esc(st.role) : 'Đang xác thực'}</span>
+        <button data-action="logout">Đăng xuất</button>`
       : `<button class="primary" data-action="login">Đăng nhập Google</button>`)
     : `<span class="pill">Lưu trên trình duyệt</span>`;
   const msg = s.message ? `<div class="notice ${esc(s.messageKind || '')}">${esc(s.message)}</div>` : '';
@@ -143,9 +152,23 @@ function viewLogin(s) {
 }
 
 // ---------- empty / import ----------
+function viewCloudWait(s) {
+  return `<div class="card narrow">
+    <h2>Đang đồng bộ Firestore Realtime</h2>
+    <p>${esc(s.status?.message || 'Đang chờ xác nhận từ máy chủ Firebase…')}</p>
+    <p class="muted">Chưa thể chỉnh sửa hoặc nhập dữ liệu cho đến khi Firestore xác nhận kết nối.</p>
+  </div>`;
+}
+function viewCloudEmpty(s) {
+  return `<div class="card narrow">
+    <h2>Firestore chưa có dữ liệu</h2>
+    <p>Chưa có bản Cashflow được Admin nhập. Người dùng Viewer và Editor không thể nhập thay dữ liệu chung.</p>
+  </div>`;
+}
 function viewImport(s) {
   const p = s.importPreview;
   const cloud = s.status?.mode === 'cloud';
+  const historyReady = !!(p && p.cashflowOpening != null && Object.keys(p.cashflowActuals || {}).length);
   const preview = p ? `<div class="card">
       <h3>Xem trước dữ liệu từ file</h3>
       <ul class="plain">
@@ -153,10 +176,11 @@ function viewImport(s) {
         <li>Khoản thu: <b>${fmtInt(p.receipts.length)}</b> · Giao dịch FX: <b>${fmtInt(p.fx.length)}</b> · Điều chỉnh NH: <b>${fmtInt(p.bankAdj.length)}</b></li>
         <li>Dòng đối chiếu: <b>${fmtInt(Object.keys(p.recon).length)}</b> · Dòng Opex: <b>${fmtInt(p.opex.length)}</b></li>
         <li>Ngày bắt đầu kế hoạch: ${fmtDate(p.settings.planStart) || 'tự động'} · Kết thúc: ${fmtDate(p.settings.planEnd)}</li>
+        <li>Lịch sử Cashflow: <b>${Object.keys(p.cashflowActuals || {}).length}</b> dòng · Số dư đầu kỳ: ${p.cashflowOpening != null ? 'Có' : 'Thiếu'}</li>
       </ul>
-      <p class="warn">${cloud ? 'Dữ liệu chung trên đám mây sẽ bị thay thế.' : 'Dữ liệu trên trình duyệt này sẽ bị thay thế.'}
-        Các thay đổi đã nhập tay (kể cả “đã xử lý lỗi”) sẽ mất.</p>
-      <button class="primary" data-action="import-confirm">Thay thế bằng dữ liệu này</button>
+      <p class="warn">${cloud ? 'Chỉ Admin được nhập dữ liệu vào Firestore trống. Không đóng tab trong khi chuyển dữ liệu.' : 'Thao tác này thay thế dữ liệu của trình duyệt.'}</p>
+      ${!historyReady ? '<p class="notice bad">Thiếu lịch sử Cashflow. Hãy chọn bản sao lưu JSON đầy đủ mới hoặc file Excel có Cashflow_Summary.</p>' : ''}
+      <button class="primary" data-action="import-confirm"${!historyReady || (cloud && s.status?.role !== 'admin') ? ' disabled' : ''}>Nhập dữ liệu lên ${cloud ? 'Firestore' : 'trình duyệt'}</button>
       <button data-action="import-cancel">Hủy</button>
     </div>` : '';
   return `<div class="card">
@@ -165,7 +189,7 @@ function viewImport(s) {
         Overview, Opening Balances, Payment Request List, Receipts, FX Transactions, Bank Adjustments,
         Reconciliation và Opex Control. Số tài khoản người nhận (cột W) không được nhập.</p>
       <p class="warn">Trước khi chuyển sang Firebase, hãy sao lưu dữ liệu hiện tại. Bản sao lưu chứa dữ liệu tài chính đầy đủ, chỉ lưu tại nơi an toàn.</p>
-      ${s.ds ? '<button type="button" data-action="backup-dataset">Sao lưu toàn bộ dữ liệu (JSON riêng tư)</button>' : ''}
+      ${s.ds && (!cloud || s.ds.importedAt) ? '<button type="button" data-action="backup-dataset">Sao lưu toàn bộ dữ liệu (JSON riêng tư)</button>' : ''}
       <div class="dropzone">
         <input type="file" id="import-file" accept=".xlsm,.xlsx,.json" data-change="import-file">
       </div>
