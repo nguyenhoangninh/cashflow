@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>SVL Cashflow | Kiểm tra đăng nhập Admin</title>
+  <style>
+    :root { color-scheme:light; font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif; background:#f4f7f8; color:#233141; }
+    *{box-sizing:border-box} body{margin:0;padding:28px 14px} main{max-width:740px;margin:auto}
+    header{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+    .logo{height:46px;width:46px;border-radius:12px;background:#195c50;color:white;font-size:23px;font-weight:700;display:grid;place-items:center}
+    h1{font-size:22px;margin:0 0 3px} h2{font-size:16px;margin:0 0 10px}
+    .muted{color:#617386}.small{font-size:13px}.panel{background:white;border:1px solid #d7e2e4;border-radius:14px;padding:20px 22px;margin-bottom:14px}
+    button{border:1px solid #b8c8c8;border-radius:8px;background:#fff;color:#1c3b36;padding:10px 16px;cursor:pointer;font:inherit;margin:5px 8px 5px 0}
+    button.primary{background:#176e55;border-color:#176e55;color:white;font-weight:600} button:disabled{opacity:.55;cursor:not-allowed}
+    .status{padding:13px;border-radius:9px;background:#eef3f6;white-space:pre-wrap;word-break:break-word;line-height:1.6;margin:12px 0}
+    .status.pass{background:#e6f5eb;color:#195b35}.status.fail{background:#ffebea;color:#852b24}
+    .status.warn{background:#fff3d7;color:#825500}
+    dl{display:grid;grid-template-columns:minmax(145px,220px) 1fr;gap:10px;margin:10px 0}
+    dt{color:#617386}dd{margin:0;overflow-wrap:anywhere;font-weight:500}
+    ol{padding-left:22px;line-height:1.65}.log{font-size:13px;line-height:1.7;white-space:pre-wrap}
+    a{color:#0c665c}.tip{border-left:3px solid #e9af4e;padding-left:13px}
+  </style>
+</head>
+<body>
+<main>
+  <header><div class="logo">S</div><div><h1>Kiểm thử đăng nhập Admin</h1><div class="muted small">SVL Cashflow · Firebase project: cashflow-aff9d</div></div></header>
+  <section class="panel">
+    <h2>1. Xác thực Google trên Firebase</h2>
+    <p class="small muted">Trang kiểm tra độc lập. Không tải dữ liệu Cashflow và không thay đổi Firestore. Chỉ gửi yêu cầu đăng nhập Google và đọc <code>members/{UID}</code> cùng <code>config/main</code> để xác minh quyền.</p>
+    <button id="signin" class="primary" disabled>Đăng nhập bằng Google</button>
+    <button id="signout" disabled>Đăng xuất</button>
+    <button id="retry" disabled>Kiểm tra quyền lại</button>
+    <div class="status" id="status" role="status">Đang nạp Firebase SDK…</div>
+    <dl id="identity" hidden>
+      <dt>Email</dt><dd id="email"></dd>
+      <dt>UID</dt><dd id="uid"></dd>
+      <dt>Email đã xác minh?</dt><dd id="verified"></dd>
+      <dt>Nhà cung cấp</dt><dd id="providers"></dd>
+      <dt>Vai trò Firestore</dt><dd id="role"></dd>
+    </dl>
+  </section>
+  <section class="panel">
+    <h2>2. Kết quả truy cập Firestore</h2>
+    <div id="result" class="status">Chưa thực hiện kiểm tra quyền.</div>
+    <div id="log" class="log muted" aria-live="polite"></div>
+  </section>
+  <section class="panel">
+    <h2>Cách diễn giải</h2>
+    <ol>
+      <li><b>PASS:</b> đăng nhập Google thành công, email được xác minh, document <code>members/{UID}</code> có <code>role = admin</code>, và Firestore cho phép đọc <code>config/main</code> trên server (document có thể chưa tồn tại).</li>
+      <li><b>Permission denied:</b> so sánh UID trong màn hình với Document ID ở <code>members</code>, kiểm tra Rules đã Publish và email đã xác minh.</li>
+      <li><b>Account exists with different credential:</b> tài khoản có thể đã được tạo bằng Email/Password. Đừng xóa hoặc đổi UID; cần xử lý liên kết tài khoản một cách an toàn.</li>
+    </ol>
+    <p class="small muted tip">Không gửi mật khẩu, token hoặc service-account key vào ChatGPT. Trang này chỉ hiển thị thông tin tài khoản trong trình duyệt của bạn, không tự gửi kết quả đi nơi khác.</p>
+    <p class="small muted"><a href="https://console.firebase.google.com/project/cashflow-aff9d/authentication/users" target="_blank" rel="noopener noreferrer">Firebase Authentication Users</a> · <a href="https://console.firebase.google.com/project/cashflow-aff9d/firestore/data" target="_blank" rel="noopener noreferrer">Firestore Data</a></p>
+  </section>
+</main>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, setPersistence, inMemoryPersistence } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
+  import { initializeFirestore, memoryLocalCache, doc, getDocFromServer } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+
+  const config = {
+    apiKey: "AIzaSyDkQFJ0EpgNkG24_lU-60vzEVCclOjQ3Fg",
+    authDomain: "cashflow-aff9d.firebaseapp.com",
+    projectId: "cashflow-aff9d",
+    storageBucket: "cashflow-aff9d.firebasestorage.app",
+    messagingSenderId: "473282135894",
+    appId: "1:473282135894:web:f4b2b3fb6ddae2ae8bf8f7"
+  };
+  const el = (id) => document.getElementById(id);
+  const status = (msg, kind = "") => { el("status").textContent = msg; el("status").className = "status " + kind; };
+  const result = (msg, kind = "") => { el("result").textContent = msg; el("result").className = "status " + kind; };
+  const log = (msg) => { el("log").textContent += msg + "\n"; };
+  const safeError = (err) => err?.code || err?.name || "unknown-error";
+
+  try {
+    const app = initializeApp(config, "svl-admin-auth-smoke-test");
+    const auth = getAuth(app);
+    const db = initializeFirestore(app, { localCache: memoryLocalCache() });
+    await setPersistence(auth, inMemoryPersistence);
+
+    let busy = false;
+    const check = async (user) => {
+      if (!user || busy) return;
+      busy = true;
+      el("retry").disabled = true;
+      el("log").textContent = "";
+      el("identity").hidden = false;
+      el("email").textContent = user.email || "(không có)";
+      el("uid").textContent = user.uid;
+      el("verified").textContent = user.emailVerified ? "Có" : "Không";
+      el("providers").textContent = user.providerData.map(p => p.providerId).join(", ") || "(không rõ)";
+      el("role").textContent = "Đang đọc…";
+      result("Đang đọc quyền trực tiếp từ Firestore server…");
+      try {
+        await user.reload();
+        await user.getIdToken(true);
+        el("verified").textContent = user.emailVerified ? "Có" : "Không";
+        if (!user.emailVerified) {
+          result("CHƯA ĐẠT: email chưa được xác minh, Security Rules sẽ không cho đọc dữ liệu.", "warn");
+          log("UID: " + user.uid + ". Cần xác minh tài khoản trước khi kiểm tra.");
+          return;
+        }
+        log("1/2 Đang đọc members/{UID} qua server...");
+        const member = await getDocFromServer(doc(db, "members", user.uid));
+        if (!member.exists()) {
+          el("role").textContent = "(chưa có document)";
+          result("CHƯA ĐẠT: Firestore chưa có members/{UID} ứng với tài khoản vừa đăng nhập.", "warn");
+          return;
+        }
+        const role = member.data()?.role || "(chưa gán)";
+        el("role").textContent = String(role);
+        log("Đọc quyền thành công; role = " + role);
+        if (role !== "admin") {
+          result("CHƯA ĐẠT ADMIN: tài khoản có role = " + role + ", không phải admin.", "warn");
+          return;
+        }
+        log("2/2 Đang kiểm tra quyền đọc config/main trên server...");
+        const cfg = await getDocFromServer(doc(db, "config", "main"));
+        log("Quyền đọc hợp lệ; config/main " + (cfg.exists() ? "đã tồn tại." : "chưa có dữ liệu (bình thường khi mới khởi tạo)."));
+        result("PASS — Google Authentication, email verified, members/{UID}=admin và Firestore Rules cho phép đọc config/main.\nKhông có giao dịch hay dữ liệu Cashflow nào được sửa.", "pass");
+      } catch (err) {
+        log("Mã lỗi: " + safeError(err));
+        result("FAIL — Chưa kiểm tra được quyền Admin trên Firestore. Mã lỗi: " + safeError(err) + ".\nKiểm tra Rules, UID, emailVerified hoặc kết nối mạng.", "fail");
+      } finally {
+        busy = false;
+        el("retry").disabled = false;
+      }
+    };
+
+    el("signin").disabled = false;
+    el("signin").addEventListener("click", async () => {
+      el("signin").disabled = true;
+      status("Đang mở cửa sổ Google đăng nhập…");
+      try {
+        await signInWithPopup(auth, new GoogleAuthProvider());
+      } catch (err) {
+        const code = safeError(err);
+        status("Đăng nhập không thành công: " + code, "fail");
+        if (code === "auth/account-exists-with-different-credential") {
+          result("Tài khoản email đã tồn tại bằng phương thức khác (có thể Email/Password). Đừng xóa user hoặc tạo admin giả. Cần liên kết tài khoản.", "warn");
+        } else if (code === "auth/unauthorized-domain") {
+          result("Thiếu tên miền nguyenhoangninh.github.io trong Firebase Authentication → Authorized domains.", "warn");
+        } else if (code === "auth/popup-blocked") {
+          result("Trình duyệt đã chặn popup. Cho phép popup cho nguyenhoangninh.github.io và thử lại.", "warn");
+        }
+      } finally {
+        el("signin").disabled = !!auth.currentUser;
+      }
+    });
+    el("signout").addEventListener("click", async () => {
+      await signOut(auth);
+      result("Đã đăng xuất. Không có dữ liệu nào được thay đổi.");
+      el("identity").hidden = true;
+      el("log").textContent = "";
+    });
+    el("retry").addEventListener("click", () => check(auth.currentUser));
+    onAuthStateChanged(auth, async (user) => {
+      el("signout").disabled = !user;
+      el("signin").disabled = !!user;
+      el("retry").disabled = !user;
+      if (user) {
+        status("Đã đăng nhập Google. Đang kiểm tra quyền Admin…", "pass");
+        await check(user);
+      } else {
+        status("Sẵn sàng. Nhấn Đăng nhập bằng Google để bắt đầu.");
+        el("identity").hidden = true;
+      }
+    });
+  } catch (err) {
+    status("Không khởi tạo được Firebase SDK: " + safeError(err), "fail");
+    result("Không có dữ liệu nào bị thay đổi. Kiểm tra kết nối mạng hoặc cấu hình Web App.", "fail");
+  }
+</script>
+</body></html>
