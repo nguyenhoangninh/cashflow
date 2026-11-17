@@ -319,11 +319,33 @@ function details(s) {
   const key = days.some((d) => d.date === s.dayKey) ? s.dayKey : days[0].date;
   const d = days.find((x) => x.date === key);
   const options = days.map((x) => [x.date, fmtDate(x.date)]);
-  const items = d.items.map((it) => `<tr>
-    ${cell(esc(it.item))}${cell(esc(it.type || ''), 'muted')}${cell(esc(it.payee || ''))}${cell(esc(it.description || ''))}
-    ${cell(esc(it.category || ''), 'muted')}${cell(esc(it.project || ''), 'muted')}
-    ${cell(money(Number(it.amount), it.currency))}${cell(esc(it.currency))}
-  </tr>`).join('');
+  // Each currency's total for the day: a line's share is measured against its own currency only.
+  const curTotal = {};
+  for (const it of d.items) {
+    const c = (it.currency || '').toUpperCase();
+    curTotal[c] = (curTotal[c] || 0) + (Number(it.amount) || 0);
+  }
+  // Largest first, VND group before USD. Lines at or above 20% of their currency total are emphasised.
+  const rank = { VND: 0, USD: 1 };
+  const ordered = [...d.items].sort((a, b) =>
+    (rank[(a.currency || '').toUpperCase()] ?? 9) - (rank[(b.currency || '').toUpperCase()] ?? 9)
+    || (Number(b.amount) || 0) - (Number(a.amount) || 0));
+  const items = ordered.map((it) => {
+    const cur = (it.currency || '').toUpperCase();
+    const amt = Number(it.amount) || 0;
+    const share = curTotal[cur] ? amt / curTotal[cur] : 0;
+    const pct = Math.round(share * 100);
+    const hi = share >= 0.2;
+    const desc = esc(it.description || '');
+    return `<tr class="${hi ? 'row-hi' : ''}">
+      ${cell(`<span class="amt${hi ? ' hi' : ''}">${fmtAmt(amt, cur)}</span>`, 'num')}
+      ${cell(`<span class="ccy ${cur === 'USD' ? 'usd' : 'vnd'}">${esc(cur || '—')}</span>`)}
+      ${cell(`<span class="share"><span class="share-bar"><i style="width:${Math.min(100, pct)}%"></i></span><span class="num">${pct}%</span></span>`)}
+      ${cell(esc(it.item))}${cell(esc(it.payee || ''))}
+      ${cell(`<span class="desc" title="${desc}">${desc}</span>`)}
+      ${cell(esc(it.category || ''), 'muted')}${cell(esc(it.type || ''), 'muted')}${cell(esc(it.project || ''), 'muted')}
+    </tr>`;
+  }).join('');
   return `<div class="toolbar"><label>Ngày ${sel(key, options, 'data-change="day" name="day"')}</label></div>
   <div class="kpis">
     <div class="kpi"><div class="kl">Đầu ngày VND</div><div class="kv num">${fmtInt(d.openVnd)}</div></div>
@@ -333,9 +355,10 @@ function details(s) {
     <div class="kpi"><div class="kl">Chi trong ngày USD</div><div class="kv num">${fmt2(d.totalUsd)}</div></div>
     <div class="kpi"><div class="kl">Cuối ngày USD</div><div class="kv num${negClass(d.closeUsd)}">${fmt2(d.closeUsd)}</div></div>
   </div>
-  <div class="table-wrap"><table class="dense">
-    <thead><tr>${['Mã', 'Loại', 'Người nhận', 'Nội dung', 'Danh mục', 'Dự án', 'Số tiền', 'TT'].map((h) => hcell(h)).join('')}</tr></thead>
-    <tbody>${items || `<tr><td colspan="8" class="muted">Không có khoản nào</td></tr>`}</tbody>
+  <p class="muted small">Sắp xếp từ lớn đến nhỏ trong từng loại tiền. Khoản từ 20% trở lên của tổng chi cùng loại tiền trong ngày được tô đậm.</p>
+  <div class="table-wrap"><table class="dense detail-table">
+    <thead><tr>${[hcell('Số tiền'), hcell('TT'), hcell('% ngày', 'num'), hcell('Mã'), hcell('Người nhận'), hcell('Nội dung'), hcell('Danh mục'), hcell('Loại'), hcell('Dự án')].join('')}</tr></thead>
+    <tbody>${items || `<tr><td colspan="9" class="muted">Không có khoản nào</td></tr>`}</tbody>
   </table></div>`;
 }
 
