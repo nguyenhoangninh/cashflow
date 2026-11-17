@@ -237,8 +237,10 @@ table.cf th, table.cf td { min-width: 96px; }
 table.cf .sub { font-weight: 400; font-size: 11px; color: var(--faint); }
 .sticky-col {
   position: sticky; left: 0; z-index: 1; background: #fff; min-width: 240px; max-width: 320px; white-space: normal;
+  border-right: 1px solid var(--line-2); box-shadow: 6px 0 8px -6px rgba(16, 24, 40, 0.12);
 }
-thead .sticky-col { z-index: 3; background: var(--head); }
+thead .sticky-col { position: sticky; left: 0; top: 0; z-index: 4; background: var(--head); }
+.table-wrap.sticky thead th.sticky-col { z-index: 4; }
 tr.section .sticky-col { background: var(--section); }
 table.wide input[type="text"] { width: 140px; }
 table.wide input[type="date"] { width: 138px; }
