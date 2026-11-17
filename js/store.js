@@ -201,11 +201,12 @@ export async function createCloudStore(cfg) {
   const writeDoc = async (coll, id, data) => fsMod.setDoc(fsMod.doc(db, coll, docKey(id)), data);
   const deleteDoc = async (coll, id) => fsMod.deleteDoc(fsMod.doc(db, coll, docKey(id)));
 
-  // Writes in chunks of 400 (Firestore batch limit is 500)
+  // Small chunks avoid per-batch security rule document-access limits.
+  // This bulk replacement is not atomic across chunks: back up first.
   async function batchWrite(ops) {
-    for (let i = 0; i < ops.length; i += 400) {
+    for (let i = 0; i < ops.length; i += 10) {
       const batch = fsMod.writeBatch(db);
-      ops.slice(i, i + 400).forEach((op) => op(batch));
+      ops.slice(i, i + 10).forEach((op) => op(batch));
       await batch.commit();
     }
   }
