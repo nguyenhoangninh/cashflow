@@ -1,6 +1,6 @@
 // Data store with one API for two backends:
 //  - local: the dataset lives in this browser (localStorage). Used when firebase-config.js is not filled in.
-//  - cloud: Firebase Auth (Google) + Firestore, shared by everyone on the allow-list.
+//  - cloud: Firebase Auth (Google) + Firestore; access is authorized by UID/role.
 // Every mutation goes through the same pure reducers, so the in-memory dataset updates at once and
 // the cloud backend then syncs the same change to Firestore.
 
@@ -130,15 +130,17 @@ export async function createCloudStore(cfg) {
   const [appMod, authMod, fsMod] = await Promise.all([import(FB_APP), import(FB_AUTH), import(FB_FS)]);
   const app = appMod.initializeApp(cfg);
   const auth = authMod.getAuth(app);
+  // Financial data: use volatile memory rather than persistent IndexedDB.
   const db = fsMod.initializeFirestore(app, {
-    localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }),
+    localCache: fsMod.memoryLocalCache(),
   });
 
   let ds = null;
   const parts = { config: null, ...Object.fromEntries(ALL_COLLECTIONS.map((c) => [c, null])) };
   const listeners = new Set();
   const unsubs = [];
-  const status = { mode: 'cloud', state: 'signed-out', message: 'Chưa đăng nhập' };
+  let memberUnsub = null;
+  const status = { mode: 'cloud', role: null, state: 'signed-out', message: 'Chưa đăng nhập' };
   const emit = () => listeners.forEach((fn) => fn(ds, status));
 
   const assemble = () => {
@@ -169,10 +171,25 @@ export async function createCloudStore(cfg) {
     emit();
   };
 
+  const clearData = () => {
+    unsubs.splice(0).forEach((unsubscribe) => unsubscribe());
+    ds = null;
+    Object.keys(parts).forEach((key) => { parts[key] = null; });
+  };
+
   const fail = (err) => {
+    clearData(); // A permission error must not leave privileged rows visible.
     status.state = 'error';
-    status.message = err?.message || String(err);
+    status.message = err?.code === 'permission-denied'
+      ? 'Tài khoản chưa được cấp quyền hoặc quyền đã bị thu hồi.'
+      : 'Không thể đọc dữ liệu Firebase: ' + (err?.message || String(err));
     emit();
+  };
+
+  const requireRole = (roles) => {
+    if (!auth.currentUser || !roles.includes(status.role)) {
+      throw new Error('Bạn không có quyền thực hiện thao tác này.');
+    }
   };
 
   const listDocs = (snap) => {
@@ -205,34 +222,65 @@ export async function createCloudStore(cfg) {
     },
 
     connect() {
-      if (unsubs.length) return;
-      status.state = 'loading';
-      status.message = 'Đang tải dữ liệu…';
+      if (memberUnsub) return;
+      const user = auth.currentUser;
+      if (!user) {
+        status.state = 'signed-out';
+        status.message = 'Chưa đăng nhập';
+        emit();
+        return;
+      }
+      status.state = 'authorizing';
+      status.message = 'Đang xác thực quyền Firebase…';
       emit();
-      unsubs.push(fsMod.onSnapshot(fsMod.doc(db, 'config', 'main'), (snap) => {
-        parts.config = snap.exists() ? snap.data() : {};
-        markLoaded();
-      }, fail));
-      for (const name of ALL_COLLECTIONS) {
-        unsubs.push(fsMod.onSnapshot(fsMod.collection(db, name), (snap) => {
-          parts[name] = name === 'recon'
-            ? Object.fromEntries(snap.docs.map((d) => [d.id, d.data()]))
-            : listDocs(snap);
+
+      // Roles are issued only from Firebase Console or a trusted admin backend.
+      // Listen for revocation and immediately discard all in-memory business data.
+      memberUnsub = fsMod.onSnapshot(fsMod.doc(db, 'members', user.uid), (snap) => {
+        const nextRole = snap.exists() ? snap.data()?.role : null;
+        if (!['viewer', 'editor', 'admin'].includes(nextRole)) {
+          clearData();
+          status.role = null;
+          status.state = 'forbidden';
+          status.message = 'Tài khoản chưa được cấp quyền. Liên hệ quản trị Firebase.';
+          emit();
+          return;
+        }
+        const roleChanged = nextRole !== status.role;
+        status.role = nextRole;
+        if (unsubs.length) {
+          if (roleChanged) emit();
+          return;
+        }
+        status.state = 'loading';
+        status.message = 'Đang tải dữ liệu…';
+        emit();
+        unsubs.push(fsMod.onSnapshot(fsMod.doc(db, 'config', 'main'), (data) => {
+          parts.config = data.exists() ? data.data() : {};
           markLoaded();
         }, fail));
-      }
+        for (const name of ALL_COLLECTIONS) {
+          unsubs.push(fsMod.onSnapshot(fsMod.collection(db, name), (data) => {
+            parts[name] = name === 'recon'
+              ? Object.fromEntries(data.docs.map((d) => [d.id, d.data()]))
+              : listDocs(data);
+            markLoaded();
+          }, fail));
+        }
+      }, fail);
     },
 
     disconnect() {
-      unsubs.splice(0).forEach((u) => u());
-      ds = null;
-      Object.keys(parts).forEach((k) => { parts[k] = null; });
+      if (memberUnsub) { memberUnsub(); memberUnsub = null; }
+      clearData();
+      status.role = null;
       status.state = 'signed-out';
       status.message = 'Chưa đăng nhập';
       emit();
     },
 
     async replaceAll(next) {
+      requireRole(['admin']);
       const clean = withDefaults(next);
       const importedAt = new Date().toISOString();
       // Delete what is there, then write the new dataset in chunks
@@ -258,30 +306,37 @@ export async function createCloudStore(cfg) {
     },
 
     async patchSettings(patch) {
+      requireRole(['admin']);
       ds = reduce.settings(ds || withDefaults(null), patch);
       emit();
       await fsMod.setDoc(fsMod.doc(db, 'config', 'main'), { settings: ds.settings }, { merge: true });
     },
 
     async patchFxDefaults(patch) {
+      requireRole(['admin']);
       ds = reduce.fxDefaults(ds || withDefaults(null), patch);
       emit();
       await fsMod.setDoc(fsMod.doc(db, 'config', 'main'), { fxDefaults: ds.fxDefaults }, { merge: true });
     },
 
     async upsert(coll, item) {
+      requireRole(['editor', 'admin']);
+      if (!LIST_COLLECTIONS.includes(coll)) throw new Error('Tập dữ liệu không hợp lệ.');
       ds = reduce.upsert(ds || withDefaults(null), coll, item);
       emit();
       await writeDoc(coll, item.id, ds[coll].find((x) => x.id === item.id));
     },
 
     async remove(coll, id) {
+      requireRole(['editor', 'admin']);
+      if (!LIST_COLLECTIONS.includes(coll)) throw new Error('Tập dữ liệu không hợp lệ.');
       ds = reduce.remove(ds, coll, id);
       emit();
       await deleteDoc(coll, id);
     },
 
     async upsertRecon(date, patch) {
+      requireRole(['editor', 'admin']);
       ds = reduce.recon(ds || withDefaults(null), date, patch);
       emit();
       await writeDoc('recon', date, { ...ds.recon[date], date });
