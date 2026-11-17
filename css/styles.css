@@ -474,3 +474,7 @@ table.dense tbody td.fc { box-shadow: inset 2px 0 0 var(--accent); }
   .cf-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .cf-charts { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Privacy-first manual AI export */
+.ai-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.ai-tools button { cursor: pointer; }

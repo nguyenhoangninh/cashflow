@@ -2,6 +2,7 @@
 import { runAll, todayKey } from '../src/engine.js';
 import { buildQuality } from '../src/quality.js';
 import { importWorkbook } from '../src/importer.js';
+import { buildAiPackage } from '../src/ai-export.js';
 import { createLocalStore, createCloudStore } from './store.js';
 import { render, CF_FILTER_DEFAULT } from './views.js';
 import { toNum, toText, toDate } from './format.js';
@@ -41,6 +42,17 @@ function recalc(ds) {
 // ---------- rendering ----------
 function paint() {
   app.innerHTML = render(state.view, state);
+  if (state.ds && state.calc && !state.calc.plan?.error) {
+    const heading = app.querySelector('.page-title');
+    if (heading) {
+      const actions = document.createElement('div');
+      actions.className = 'ai-tools';
+      actions.innerHTML = '<span class="muted small">AI: chỉ tải về, không tự gửi dữ liệu</span>'
+        + '<button type="button" data-action="ai-export-summary">Xuất AI tổng hợp</button>'
+        + '<button type="button" data-action="ai-export-detail">Xuất AI chi tiết</button>';
+      heading.appendChild(actions);
+    }
+  }
   document.title = `SVL Dự báo dòng tiền — ${TITLES[state.view] || ''}`.trim();
 }
 const TITLES = {
@@ -90,6 +102,29 @@ async function onClick(e) {
         paint();
         window.scrollTo(0, 0);
         break;
+
+      case 'ai-export-summary':
+      case 'ai-export-detail': {
+        if (!state.ds || !state.calc) throw new Error('Chưa có dữ liệu Cashflow.');
+        const level = action === 'ai-export-detail' ? 'detail' : 'summary';
+        const note = level === 'detail'
+          ? 'File có danh sách chi tiết khoản thanh toán, nhưng không chứa tên đối tác và số tài khoản.'
+          : 'File chỉ có số liệu tổng hợp và cảnh báo dòng tiền.';
+        if (!window.confirm(note + '\\n\\nĐây là dữ liệu tài chính nội bộ SVL. Chỉ chia sẻ nếu được công ty cho phép. Tải file về?')) break;
+        const pack = buildAiPackage(state.ds, state.calc, state.Q, { level });
+        const blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'SVL_Cashflow_AI_' + level + '_' + new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+        setMessage('Đã tải file về máy; chưa tự động gửi dữ liệu tới ChatGPT.', 'ok');
+        paint();
+        break;
+      }
 
       case 'pay-page':
         state.pay.page = Math.max(0, (state.pay.page || 0) + Number(el.dataset.dir));
