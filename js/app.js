@@ -241,14 +241,16 @@ async function onClick(e) {
         if (state.status?.mode === 'cloud' && state.status?.role !== 'admin')
           throw new Error('Chỉ Admin được thay thế dữ liệu chung.');
         if (!state.importPreview) throw new Error('Chưa chọn dữ liệu để nhập.');
-        if (state.status?.mode === 'cloud' && !window.confirm('CẢNH BÁO: Thao tác này sẽ thay thế dữ liệu của toàn bộ người dùng Firebase. Hãy bảo đảm đã có bản sao lưu an toàn. Bạn vẫn muốn tiếp tục?')) break;
-        const prev = state.ds?.settings || {};
+        if (state.status?.mode === 'cloud' && !window.confirm('CẢNH BÁO: Bạn chuẩn bị nhập dữ liệu đã sao lưu vào Firestore dùng chung. Đây là lần nhập ban đầu vào database trống. Giữ bản sao lưu an toàn và không đóng tab cho đến khi hoàn tất. Tiếp tục?')) break;
         const next = state.importPreview;
-        next.settings = { ...next.settings, cfSourceLinks: !!prev.cfSourceLinks, todayOverride: prev.todayOverride ?? null };
+        if (state.status?.mode !== 'cloud') {
+          const prev = state.ds?.settings || {};
+          next.settings = { ...next.settings, cfSourceLinks: !!prev.cfSourceLinks, todayOverride: prev.todayOverride ?? null };
+        }
         await store.replaceAll(next);
         state.importPreview = null;
         state.importStatus = '';
-        setMessage('Đã nhập dữ liệu từ file Excel.', 'ok');
+        setMessage('Đã xác nhận nhập dữ liệu vào Firestore. Đợi màn hình báo đã đồng bộ.', 'ok');
         state.view = 'overview';
         location.hash = 'overview';
         paint();
@@ -301,7 +303,10 @@ async function onChange(e) {
           ds = importWorkbook(XLSX, await file.arrayBuffer());
         }
         state.importPreview = ds;
-        state.importStatus = `Đã đọc ${file.name}. Kiểm tra bên dưới rồi xác nhận.`;
+        const historyCount = Object.keys(ds.cashflowActuals || {}).length;
+        state.importStatus = historyCount && ds.cashflowOpening != null
+          ? `Đã đọc ${file.name}; có ${historyCount} dòng lịch sử Cashflow. Kiểm tra trước khi nhập.`
+          : 'Bản sao lưu chưa có lịch sử Cashflow. Hãy tải bản JSON đầy đủ mới từ trang sao lưu.';
         paint();
         break;
       }
