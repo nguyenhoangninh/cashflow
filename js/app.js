@@ -97,8 +97,13 @@ async function onClick(e) {
         break;
 
       case 'cf-reset':
-        // resets the filters only; folded groups stay as they are
-        state.cf = { ...CF_FILTER_DEFAULT, collapsed: state.cf.collapsed };
+        // resets the filters only; folded groups and the chart strip stay as they are
+        state.cf = { ...CF_FILTER_DEFAULT, collapsed: state.cf.collapsed, charts: state.cf.charts };
+        paint();
+        break;
+
+      case 'cf-charts':
+        state.cf = { ...state.cf, charts: !state.cf.charts };
         paint();
         break;
 

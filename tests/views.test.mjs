@@ -74,10 +74,10 @@ test('quality lists the known source differences with the computed numbers', () 
 
 test('cashflow switch shows the selected opening-link mode', () => {
   const chainHtml = render('cashflow', state);
-  assert.ok(/value="chain" data-change="cfmode" checked/.test(chainHtml));
+  assert.ok(/<option value="chain" selected>/.test(chainHtml));
   const srcState = { ...state, ds: { ...ds, settings: { ...ds.settings, cfSourceLinks: true } }, calc: source };
   const srcHtml = render('cashflow', srcState);
-  assert.ok(/value="source" data-change="cfmode" checked/.test(srcHtml));
+  assert.ok(/<option value="source" selected>/.test(srcHtml));
 });
 
 test('import screen works without data and shows the preview when a file is read', () => {
@@ -158,7 +158,7 @@ test('folding the Others sub-group hides only its own items', () => {
   assert.ok(folded.rows.some((r) => r.type === 'sum_opex'));
 });
 
-test('cashflow filters: month range, kind, summary and zero rows', () => {
+test('cashflow filters: month range, kind and zero rows', () => {
   const cf = chain.cashflow;
   const all = filterCashflow(cf, CF_FILTER_DEFAULT);
   assert.equal(all.cols.length, cf.weeks.length);
@@ -174,10 +174,6 @@ test('cashflow filters: month range, kind, summary and zero rows', () => {
   const actualOnly = filterCashflow(cf, { ...CF_FILTER_DEFAULT, kind: 'actual' });
   assert.ok(actualOnly.cols.every((i) => cf.weeks[i].actual));
 
-  const summary = filterCashflow(cf, { ...CF_FILTER_DEFAULT, summary: true });
-  assert.ok(summary.rows.every((r) => r.type !== 'header'));
-  assert.ok(summary.rows.some((r) => r.type === 'ending'));
-
   const noZero = filterCashflow(cf, { ...CF_FILTER_DEFAULT, hideZero: true });
   assert.ok(noZero.rows.every((r) => r.type === 'header' || r.values.some((v) => Math.abs(Number(v) || 0) >= 0.005)));
   noZero.rows.forEach((r, i) => {
@@ -185,18 +181,31 @@ test('cashflow filters: month range, kind, summary and zero rows', () => {
   });
 });
 
-test('cashflow screen: filter bar, month options, opening date label and no group controls in summary', () => {
-  const html = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, summary: true, mFrom: '7', mTo: '7' } });
-  assert.match(html, /data-field="summary"[^>]*checked/);
+test('cashflow screen: one-line filter bar, month options, opening date label and charts toggle', () => {
+  const html = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, mFrom: '7', mTo: '7' } });
   assert.match(html, /data-action="cf-reset"/);
-  assert.match(html, /Từ tháng/);
-  assert.match(html, /Đến tháng/);
-  assert.match(html, /Tháng 7 \(TT\)/);
+  assert.match(html, /data-action="cf-charts"/);
+  assert.match(html, /Từ <select/);
+  assert.match(html, /T7 \(TT\)/);
   assert.match(html, /Số dư đầu kỳ · 01\/07\/2026/);
+  assert.ok(!html.includes('Chỉ tổng hợp'));
   assert.ok(balanced(html, 'table'));
-  assert.ok(!html.includes('data-action="cf-toggle"'));
+  assert.ok(html.includes('class="cf-trend"'));
+  assert.ok(html.includes('viz-mix'));
+  const hidden = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, charts: false } });
+  assert.ok(!hidden.includes('cf-trend'));
   const none = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, mFrom: '9', mTo: '7' } });
   assert.match(none, /Không có tuần nào khớp bộ lọc/);
+});
+
+test('cashflow charts agree with the table: June totals, net and receipts', () => {
+  const cf = chain.cashflow;
+  const html = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, mFrom: '6', mTo: '6' } });
+  const june = cf.weeks.map((w, i) => i).filter((i) => cf.weeks[i].code.startsWith('6.'));
+  const sumRow = (type) => june.reduce((a, i) => a + cf.rows.find((r) => r.type === type).values[i], 0);
+  const esc2 = (x) => x.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+  assert.match(html, new RegExp(`\\+${esc2(fmt2(sumRow('sum_receipt')))}`));
+  assert.match(html, new RegExp(`ròng ${esc2(fmt2(sumRow('net')))}`));
 });
 
 test('settings screen holds the planning dates and thresholds, not the overview', () => {

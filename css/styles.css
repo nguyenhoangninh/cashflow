@@ -39,6 +39,15 @@
   --shadow: 0 1px 0 rgba(28, 43, 54, 0.06);
   --top-h: 48px;
   --rail-w: 248px;
+  /* chart colours (validated with the dataviz palette check): blue / red for in / out, four categorical slots for cost groups */
+  --viz-blue: #2a78d6;
+  --viz-red: #e34948;
+  --viz-1: #eb6834;
+  --viz-2: #1baf7a;
+  --viz-3: #eda100;
+  --viz-4: #e87ba4;
+  --hair: #e3e9e5;
+  --dbband: #fbf4e6;
   font-family: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 14px;
   line-height: 1.5;
@@ -83,6 +92,14 @@
     --info: #8fb2e6;
     --info-bg: #1d2c42;
     --info-line: #2f4663;
+    --viz-blue: #3987e5;
+    --viz-red: #e66767;
+    --viz-1: #d95926;
+    --viz-2: #199e70;
+    --viz-3: #c98500;
+    --viz-4: #d55181;
+    --hair: #26343c;
+    --dbband: #2a2416;
     color-scheme: dark;
   }
 }
@@ -301,8 +318,9 @@ td:has(> .num), th:has(> .num) { text-align: right; }
 .cf-bar label { font-size: 12.5px; }
 .cf-bar .tb-title { font-weight: 600; color: var(--ink-2); font-size: 12.5px; }
 .cf-bar .tb-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 2px; }
-.cf-bar .tb-count { font-size: 12px; margin-left: auto; }
-.cf-bar select { height: 28px; font-size: 12.5px; min-width: 96px; max-width: 150px; }
+.cf-bar .tb-count { font-size: 12px; margin-left: auto; white-space: nowrap; }
+.cf-bar select { height: 28px; font-size: 12.5px; min-width: 0; width: auto; max-width: none; padding-right: 6px; }
+.cf-bar label { white-space: nowrap; }
 .cf-bar button { height: 28px; font-size: 12.5px; }
 tr.strong td { font-weight: 700; background: var(--total-bg); color: var(--total-ink); border-top: 1px solid var(--line-2); }
 tr.strong:hover td { background: var(--total-bg) !important; }
@@ -398,3 +416,61 @@ table.cf thead th .dates { font-size: 10.5px; font-weight: 400; opacity: 0.7; te
 /* the first forecast week gets a divider, so the actual / forecast boundary is visible */
 table.dense thead th.fc { box-shadow: inset 2px 0 0 #7fb8a4; }
 table.dense tbody td.fc { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* ---------- cashflow: KPI tiles and charts ---------- */
+.cf-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 0 0 8px; }
+.kpi-tile {
+  position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 12px 8px 14px; box-shadow: var(--shadow); overflow: hidden;
+}
+.kpi-tile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--line-2); }
+.kpi-tile.k-in::before { background: var(--viz-blue); }
+.kpi-tile.k-out::before { background: var(--viz-red); }
+.kpi-tile.k-warn::before { background: var(--warn); }
+.kt-label { display: block; font-size: 11.5px; color: var(--muted); font-weight: 500; }
+.kt-value { display: block; font-size: 19px; font-weight: 650; letter-spacing: -0.2px; line-height: 1.25; margin: 2px 0 1px; white-space: nowrap; }
+.kpi-tile.k-in .kt-value { color: var(--viz-blue); }
+.kpi-tile.k-out .kt-value { color: var(--viz-red); }
+.kt-sub { display: block; font-size: 11px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.cf-charts { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); gap: 8px; margin: 0 0 8px; }
+.viz-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px 6px; box-shadow: var(--shadow); min-width: 0; }
+.viz-title { font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 2px; }
+.viz-title .muted { font-weight: 400; font-size: 11.5px; }
+.viz-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin: 0 0 2px; }
+.viz-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.lg { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.lg.pos { background: var(--viz-blue); }
+.lg.neg { background: var(--viz-red); }
+.lg.line { height: 2px; width: 14px; background: var(--ink); border-radius: 0; }
+.cf-trend svg { display: block; width: 100%; height: auto; max-height: 176px; overflow: visible; }
+.cf-trend .grid { stroke: var(--hair); stroke-width: 1; }
+.cf-trend .zero { stroke: var(--line-2); stroke-width: 1; }
+.cf-trend .axis { fill: var(--faint); font-size: 10.5px; font-family: inherit; }
+.cf-trend .dbband { fill: var(--dbband); }
+.cf-trend .dblabel { fill: var(--muted); font-size: 10px; font-weight: 600; }
+.cf-trend .bar { transform-box: fill-box; transform-origin: 50% 100%; animation: cf-grow 0.5s ease-out both; }
+.cf-trend .bar.pos { fill: var(--viz-blue); }
+.cf-trend .bar.neg { fill: var(--viz-red); }
+.cf-trend .bar:hover { opacity: 0.8; }
+.cf-trend .endline { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.cf-trend .dot { fill: var(--card); stroke: var(--ink); stroke-width: 2; }
+.cf-trend .endlabel { fill: var(--ink); font-size: 11px; font-weight: 600; }
+@keyframes cf-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .cf-trend .bar { animation: none; } }
+
+.hbar-list { display: flex; flex-direction: column; gap: 9px; padding-top: 4px; }
+.hbar-head { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 3px; }
+.hbar-head .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.hbar-name { flex: 1; color: var(--ink-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar-val { font-weight: 600; color: var(--ink); }
+.hbar-pct { width: 36px; text-align: right; color: var(--muted); font-size: 11.5px; }
+.hbar-track { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.hbar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease-out; }
+
+/* the chart strip takes its height; the table below takes the rest of the window */
+.screen.fill > .cf-tiles, .screen.fill > .cf-charts { flex: none; }
+@media (max-width: 1100px) {
+  .cf-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cf-charts { grid-template-columns: minmax(0, 1fr); }
+}

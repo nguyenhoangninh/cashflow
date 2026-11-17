@@ -523,9 +523,9 @@ function weekly(s) {
 
 // ---------- Cashflow (USD'000K) ----------
 // Default filters of the cashflow screen (also used by the reset button in app.js).
-// mFrom / mTo: first and last month shown ('' = all). collapsed: group keys (Excel row numbers) that are folded;
-// it is kept when the filters are reset.
-export const CF_FILTER_DEFAULT = { mFrom: '', mTo: '', kind: 'all', summary: false, hideZero: false, collapsed: {} };
+// mFrom / mTo: first and last month shown ('' = all). collapsed: group keys (Excel row numbers) that are folded.
+// charts: whether the chart strip above the table is shown. collapsed and charts are kept when the filters are reset.
+export const CF_FILTER_DEFAULT = { mFrom: '', mTo: '', kind: 'all', hideZero: false, charts: true, collapsed: {} };
 const CF_SUMMARY = ['sum_receipt', 'sum_opex', 'sum_capex', 'net', 'ending', 'opening'];
 const CF_LEAF = ['receipt', 'payable', 'opex', 'capex', 'debt', 'buffer'];
 const CF_TOTAL = ['sum_receipt', 'sum_opex', 'sum_capex'];
@@ -573,10 +573,10 @@ export function filterCashflow(cf, f) {
     const r = src[i];
     if (r.type === 'header') {
       sub = null;
-      group = { collapsed: !f.summary && !!collapsed[r.row] };
+      group = { collapsed: !!collapsed[r.row] };
       pendingHeader = null;
       if (group.collapsed) rows.push({ ...r, collapsed: true, values: groupTotal(src, i, cf.weeks.length) });
-      else if (!f.summary) pendingHeader = r;
+      else pendingHeader = r;
       continue;
     }
     if (CF_ENDS_GROUP.includes(r.type)) {
@@ -587,17 +587,131 @@ export function filterCashflow(cf, f) {
       continue;
     }
     if (r.type === 'opex_sub') {
-      sub = { collapsed: !f.summary && !!collapsed[r.row] };
-      if (f.summary || (group && group.collapsed) || (f.hideZero && isZero(r))) continue;
+      sub = { collapsed: !!collapsed[r.row] };
+      if ((group && group.collapsed) || (f.hideZero && isZero(r))) continue;
       emit({ ...r, indent: 1, collapsed: sub.collapsed });
       continue;
     }
-    if (f.summary) continue;
     if ((group && group.collapsed) || (sub && sub.collapsed)) continue;
     if (f.hideZero && isZero(r)) continue;
     emit({ ...r, indent: sub ? 2 : 1 });
   }
   return { cols, rows };
+}
+
+// ---------- Cashflow charts: inline SVG and HTML bars, no library ----------
+const niceStep = (raw) => {
+  const p = 10 ** Math.floor(Math.log10(raw || 1));
+  const m = raw / p;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+};
+
+// Weekly series for the charts, read from the same engine rows as the table so the numbers agree.
+function cfSeries(cf, cols) {
+  const row = (t) => cf.rows.find((r) => r.type === t);
+  const get = (r, i) => Number(r.values[i]) || 0;
+  const rowsOf = (types) => cf.rows.filter((r) => types.includes(r.type));
+  const sumOver = (rs) => cols.reduce((a, i) => a + rs.reduce((b, r) => b + get(r, i), 0), 0);
+  const rReceipt = row('sum_receipt');
+  const rNet = row('net');
+  const rEnd = row('ending');
+  const rOpen = row('opening');
+  const payables = sumOver(rowsOf(['payable']));
+  const opex = sumOver([row('sum_opex')]) - payables;   // TOTAL OPEX includes the payables rows
+  const capex = sumOver([row('sum_capex')]);
+  const debt = sumOver(rowsOf(['debt', 'buffer']));
+  const weekly = cols.map((i) => ({
+    code: cf.weeks[i].code,
+    actual: cf.weeks[i].actual,
+    from: cf.weeks[i].from,
+    to: cf.weeks[i].to,
+    receipt: get(rReceipt, i),
+    net: get(rNet, i),
+    end: get(rEnd, i),
+  }));
+  return {
+    weekly,
+    opening: cols.length ? get(rOpen, cols[0]) : 0,
+    receipts: sumOver([rReceipt]),
+    outflows: payables + opex + capex + debt,    // positive amounts paid out
+    groups: [['Thanh toán NCC', payables], ['Chi phí vận hành', opex], ['CAPEX', capex], ['Nợ & lãi vay', debt]],
+  };
+}
+
+// Net cash flow bars (blue in, red out) with the closing balance as a line, on one axis (USD'000K).
+function cfTrendSvg(weekly) {
+  const W = 760, H = 200, L = 54, R = 64, T = 12, B = 24;
+  const n = weekly.length, pw = W - L - R, ph = H - T - B;
+  const band = pw / n, bw = Math.max(4, Math.min(22, band * 0.56));
+  const xs = (k) => L + band * (k + 0.5);
+  const all = weekly.flatMap((w) => [w.net, w.end, 0]);
+  let lo = Math.min(...all), hi = Math.max(...all);
+  const pad = (hi - lo) * 0.1 || 1;
+  lo = Math.min(0, lo - pad); hi = Math.max(0, hi + pad);
+  const ys = (v) => T + ((hi - v) / (hi - lo)) * ph;
+  const step = niceStep((hi - lo) / 4);
+  let grid = '';
+  for (let t = Math.ceil(lo / step) * step; t <= hi + 1e-9; t += step) {
+    grid += `<line class="grid" x1="${L}" x2="${W - R}" y1="${ys(t)}" y2="${ys(t)}"/>`
+      + `<text class="axis" x="${L - 6}" y="${ys(t) + 3.5}" text-anchor="end">${fmtInt(t)}</text>`;
+  }
+  const dbStart = weekly.findIndex((w) => !w.actual);
+  const dbBand = dbStart >= 0
+    ? `<rect class="dbband" x="${L + band * dbStart}" y="${T}" width="${pw - band * dbStart}" height="${ph}"/>`
+      + `<text class="dblabel" x="${L + band * dbStart + 6}" y="${T + 12}">Dự báo →</text>`
+    : '';
+  const bars = weekly.map((w, k) => {
+    const y0 = ys(0), y1 = ys(w.net);
+    return `<rect class="bar ${w.net >= 0 ? 'pos' : 'neg'}" x="${(xs(k) - bw / 2).toFixed(1)}" y="${Math.min(y0, y1).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, Math.abs(y1 - y0)).toFixed(1)}" rx="3">`
+      + `<title>${w.code}: dòng tiền ròng ${fmt2(w.net)} · số dư cuối ${fmt2(w.end)}</title></rect>`;
+  }).join('');
+  const line = `<polyline class="endline" points="${weekly.map((w, k) => `${xs(k).toFixed(1)},${ys(w.end).toFixed(1)}`).join(' ')}"/>`;
+  const dots = weekly.map((w, k) => `<circle class="dot" cx="${xs(k).toFixed(1)}" cy="${ys(w.end).toFixed(1)}" r="3"><title>${w.code}: số dư cuối ${fmt2(w.end)}</title></circle>`).join('');
+  const last = weekly[n - 1];
+  const endLabel = `<text class="endlabel" x="${(xs(n - 1) + 8).toFixed(1)}" y="${(ys(last.end) + 4).toFixed(1)}">${fmt2(last.end)}</text>`;
+  const xlabels = weekly.map((w, k) => (n > 14 && k % 2 ? '' : `<text class="axis" x="${xs(k).toFixed(1)}" y="${H - 6}" text-anchor="middle">${w.code}</text>`)).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Dòng tiền ròng và số dư cuối theo tuần">${grid}${dbBand}`
+    + `<line class="zero" x1="${L}" x2="${W - R}" y1="${ys(0)}" y2="${ys(0)}"/>${bars}${line}${dots}${endLabel}${xlabels}</svg>`;
+}
+
+function cfCharts(cf, cols) {
+  if (!cols.length) return '';
+  const s = cfSeries(cf, cols);
+  const outAbs = Math.abs(s.outflows);
+  const net = s.receipts - outAbs;
+  const endLast = s.weekly[s.weekly.length - 1].end;
+  const low = s.weekly.reduce((a, w) => (w.end < a.end ? w : a), s.weekly[0]);
+  const first = cf.weeks[cols[0]];
+  const last = cf.weeks[cols[cols.length - 1]];
+  const tile = (label, value, sub, cls = '') => `<div class="kpi-tile ${cls}"><span class="kt-label">${label}</span>`
+    + `<span class="kt-value">${value}</span><span class="kt-sub">${sub}</span></div>`;
+  const tiles = `<div class="cf-tiles">
+    ${tile('Số dư đầu kỳ', fmt2(s.opening), dmy(first.from))}
+    ${tile('Tổng thu', `+${fmt2(s.receipts)}`, `${cols.length} tuần`, 'k-in')}
+    ${tile('Tổng chi', `−${fmt2(outAbs)}`, `ròng ${fmt2(net)}`, 'k-out')}
+    ${tile('Số dư cuối kỳ', fmt2(endLast), `${endLast - s.opening >= 0 ? '+' : ''}${fmt2(endLast - s.opening)} so với đầu kỳ`, endLast < s.opening ? 'k-warn' : '')}
+    ${tile('Số dư thấp nhất', fmt2(low.end), `tuần ${low.code} · ${dm(low.from)}`, low.end < 0 ? 'k-out' : '')}
+  </div>`;
+  const legend = `<div class="viz-legend">
+    <span><i class="lg bar pos"></i>Thu nhiều hơn chi</span><span><i class="lg bar neg"></i>Chi nhiều hơn thu</span>
+    <span><i class="lg line"></i>Số dư cuối tuần</span></div>`;
+  const trend = `<div class="viz-card viz-trend">
+    <div class="viz-title">Dòng tiền ròng và số dư theo tuần <span class="muted">· USD'000K</span></div>
+    ${legend}
+    <div class="cf-trend">${cfTrendSvg(s.weekly)}</div></div>`;
+  const total = s.groups.reduce((a, g) => a + Math.abs(g[1]), 0) || 1;
+  const bars = [...s.groups].map((g, k) => [g, k]).sort((a, b) => Math.abs(b[0][1]) - Math.abs(a[0][1]))
+    .map(([g, k]) => {
+      const pct = (Math.abs(g[1]) / total) * 100;
+      return `<div class="hbar-row">
+        <div class="hbar-head"><span class="sw" style="background:var(--viz-${k + 1})"></span><span class="hbar-name">${esc(g[0])}</span>
+        <span class="hbar-val">−${fmt2(Math.abs(g[1]))}</span><span class="hbar-pct">${pct.toFixed(0)}%</span></div>
+        <div class="hbar-track"><div class="hbar-fill" style="width:${pct.toFixed(1)}%;background:var(--viz-${k + 1})"></div></div></div>`;
+    }).join('');
+  const mix = `<div class="viz-card viz-mix">
+    <div class="viz-title">Cơ cấu chi <span class="muted">· ${dmy(first.from)} – ${dmy(last.to)}</span></div>
+    ${outAbs ? `<div class="hbar-list">${bars}</div>` : '<div class="muted">Không có khoản chi trong khoảng này.</div>'}</div>`;
+  return `${tiles}<div class="cf-charts">${trend}${mix}</div>`;
 }
 
 function cashflow(s) {
@@ -608,7 +722,7 @@ function cashflow(s) {
   const months = [...new Set(cf.weeks.map((w) => monthNum(w.code)))];
   const monthTag = (m) => {
     const first = cf.weeks.find((w) => monthNum(w.code) === m);
-    return `Tháng ${m} (${first.actual ? 'TT' : 'DB'})`;
+    return `T${m} (${first.actual ? 'TT' : 'DB'})`;
   };
   const monthOptions = (sel, allLabel) => [['', allLabel], ...months.map((m) => [String(m), monthTag(m)])]
     .map(([v, t]) => `<option value="${v}" ${String(sel ?? '') === v ? 'selected' : ''}>${esc(t)}</option>`).join('');
@@ -628,7 +742,7 @@ function cashflow(s) {
     if (r.type === 'ending' && cols.length) return `Số dư cuối kỳ · ${dmy(cf.weeks[cols[cols.length - 1]].to)}`;
     return r.label.trim();
   };
-  const cells = (r, cellCls = '') => cols.map((i, k) => `<td class="num${isBoundary(k) ? ' fc' : ''}${cellCls}">${r.type === 'header' ? '' : k2(r.values[i])}</td>`).join('');
+  const cells = (r) => cols.map((i, k) => `<td class="num${isBoundary(k) ? ' fc' : ''}">${k2(r.values[i])}</td>`).join('');
   const body = rows.map((r) => {
     if (r.type === 'header') {
       const c = !!r.collapsed;
@@ -657,23 +771,23 @@ function cashflow(s) {
     <tbody>${body}</tbody>
   </table></div>`
     : `<div class="notice">Không có tuần nào khớp bộ lọc. Hãy chọn lại khoảng tháng.</div>`;
+  const charts = f.charts ? cfCharts(cf, cols) : '';
   return `<div class="toolbar cf-bar">
-    <span class="tb-title">Số dư đầu kỳ</span>
-    <label class="radio" title="Số dư đầu mỗi tuần = số dư cuối tuần trước"><input type="radio" name="cfmode" value="chain" data-change="cfmode" ${mode === 'chain' ? 'checked' : ''}> Chuỗi đúng</label>
-    <label class="radio" title="Như file gốc (V8:AC8)"><input type="radio" name="cfmode" value="source" data-change="cfmode" ${mode === 'source' ? 'checked' : ''}> Như file gốc</label>
+    <label title="Chuỗi đúng: số dư đầu mỗi tuần = số dư cuối tuần trước. Như file gốc: theo V8:AC8 của file Excel.">Số dư đầu
+      <select data-change="cfmode"><option value="chain" ${mode === 'chain' ? 'selected' : ''}>Chuỗi đúng</option><option value="source" ${mode === 'source' ? 'selected' : ''}>Như file gốc</option></select></label>
     <span class="tb-sep"></span>
-    <label>Từ tháng <select data-change="cf-filter" data-field="mFrom">${monthOptions(f.mFrom, 'Đầu')}</select></label>
-    <label>Đến tháng <select data-change="cf-filter" data-field="mTo">${monthOptions(f.mTo, 'Cuối')}</select></label>
+    <label>Từ <select data-change="cf-filter" data-field="mFrom">${monthOptions(f.mFrom, 'Đầu')}</select></label>
+    <label>Đến <select data-change="cf-filter" data-field="mTo">${monthOptions(f.mTo, 'Cuối')}</select></label>
     <label>Loại <select data-change="cf-filter" data-field="kind">${kindOptions}</select></label>
-    <span class="tb-sep"></span>
-    <label class="radio"><input type="checkbox" data-change="cf-filter" data-field="summary" ${f.summary ? 'checked' : ''}> Chỉ tổng hợp</label>
     <label class="radio"><input type="checkbox" data-change="cf-filter" data-field="hideZero" ${f.hideZero ? 'checked' : ''}> Ẩn số 0</label>
     <span class="tb-sep"></span>
+    <button type="button" data-action="cf-charts" title="Hiện hoặc ẩn các biểu đồ phía trên bảng">${f.charts ? 'Ẩn biểu đồ' : 'Hiện biểu đồ'}</button>
     <button type="button" data-action="cf-collapse-all" title="Thu gọn tất cả các nhóm">Thu gọn</button>
     <button type="button" data-action="cf-expand-all" title="Mở tất cả các nhóm">Mở rộng</button>
     <button type="button" data-action="cf-reset">Đặt lại</button>
-    <span class="muted tb-count">${cols.length}/${cf.weeks.length} tuần · ${lineCount} dòng</span>
+    <span class="muted tb-count" title="${lineCount} dòng trong bảng">${cols.length}/${cf.weeks.length} tuần</span>
   </div>
+  ${charts}
   ${table}`;
 }
 
