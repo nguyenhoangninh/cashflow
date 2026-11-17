@@ -510,30 +510,78 @@ function weekly(s) {
 }
 
 // ---------- Cashflow (USD'000K) ----------
+// Default filters of the cashflow screen (also used by the reset button in app.js).
+export const CF_FILTER_DEFAULT = { from: '', to: '', kind: 'all', summary: false, hideZero: false };
+const CF_SUMMARY = ['sum_receipt', 'sum_opex', 'sum_capex', 'net', 'ending', 'opening'];
+
+// Keeps the week columns and rows that match the filters. Section headers stay only when a row below them is shown.
+export function filterCashflow(cf, f) {
+  const from = f.from === '' || f.from == null ? 0 : Number(f.from);
+  const to = f.to === '' || f.to == null ? cf.weeks.length - 1 : Number(f.to);
+  const cols = cf.weeks.map((_, i) => i).filter((i) => i >= from && i <= to
+    && (f.kind === 'all' || (f.kind === 'actual') === cf.weeks[i].actual));
+  const isZero = (r) => r.values.every((v) => Math.abs(Number(v) || 0) < 0.005);
+  const rows = [];
+  let pendingHeader = null;
+  for (const r of cf.rows) {
+    if (r.type === 'header') {
+      if (!f.summary) pendingHeader = r;
+      continue;
+    }
+    if (f.summary && !CF_SUMMARY.includes(r.type)) continue;
+    if (f.hideZero && isZero(r)) continue;
+    if (pendingHeader) { rows.push(pendingHeader); pendingHeader = null; }
+    rows.push(r);
+  }
+  return { cols, rows };
+}
+
 function cashflow(s) {
   const cf = s.calc.cashflow;
   const mode = s.ds.settings.cfSourceLinks ? 'source' : 'chain';
-  const head = cf.weeks.map((w) => `<th class="${w.actual ? 'actual' : ''}">${esc(w.code)}<div class="sub">${w.actual ? 'TT' : 'DB'}</div></th>`).join('');
-  const body = cf.rows.map((r) => {
+  const f = { ...CF_FILTER_DEFAULT, ...(s.cf || {}) };
+  const { cols, rows } = filterCashflow(cf, f);
+  const weekOptions = cf.weeks.map((w, i) => `<option value="${i}" ${String(f.from) === String(i) ? 'selected' : ''}>${esc(w.code)} (${w.actual ? 'TT' : 'DB'})</option>`).join('');
+  const toOptions = cf.weeks.map((w, i) => `<option value="${i}" ${String(f.to) === String(i) ? 'selected' : ''}>${esc(w.code)} (${w.actual ? 'TT' : 'DB'})</option>`).join('');
+  const kindOptions = [['all', 'Tất cả tuần'], ['actual', 'Chỉ tuần thực tế (TT)'], ['forecast', 'Chỉ tuần dự báo (DB)']]
+    .map(([v, t]) => `<option value="${v}" ${f.kind === v ? 'selected' : ''}>${t}</option>`).join('');
+  const lineCount = rows.filter((r) => r.type !== 'header').length;
+  const head = cols.map((i) => {
+    const w = cf.weeks[i];
+    return `<th class="${w.actual ? 'actual' : ''}">${esc(w.code)}<div class="sub">${w.actual ? 'TT' : 'DB'}</div></th>`;
+  }).join('');
+  const body = rows.map((r) => {
     if (r.type === 'header') {
-      return `<tr class="section"><td class="sticky-col">${esc(r.label.trim())}</td><td colspan="${cf.weeks.length}"></td></tr>`;
+      return `<tr class="section"><td class="sticky-col">${esc(r.label.trim())}</td><td colspan="${cols.length}"></td></tr>`;
     }
-    const strong = ['sum_receipt', 'sum_opex', 'sum_capex', 'net', 'ending', 'opening'].includes(r.type);
+    const strong = CF_SUMMARY.includes(r.type);
     return `<tr class="${strong ? 'strong' : ''}">
       <td class="sticky-col">${esc(r.label.trim())}</td>
-      ${r.values.map((v, i) => `<td class="${cf.weeks[i].actual ? 'actual' : ''}">${k2(v)}</td>`).join('')}
+      ${cols.map((i) => `<td class="${cf.weeks[i].actual ? 'actual' : ''}">${k2(r.values[i])}</td>`).join('')}
     </tr>`;
   }).join('');
+  const table = cols.length
+    ? `<div class="table-wrap sticky"><table class="dense cf">
+    <thead><tr><th class="sticky-col">Mục</th>${head}</tr></thead>
+    <tbody>${body}</tbody>
+  </table></div>`
+    : `<div class="notice">Không có tuần nào khớp bộ lọc. Hãy chọn lại khoảng tuần.</div>`;
   return `<div class="toolbar">
     <span>Liên kết số dư đầu kỳ 11.1–12.4:</span>
     <label class="radio"><input type="radio" name="cfmode" value="chain" data-change="cfmode" ${mode === 'chain' ? 'checked' : ''}> Chuỗi đúng (cuối tuần trước)</label>
     <label class="radio"><input type="radio" name="cfmode" value="source" data-change="cfmode" ${mode === 'source' ? 'checked' : ''}> Như file gốc (V8:AC8)</label>
   </div>
+  <div class="toolbar filters">
+    <label>Từ tuần <select data-change="cf-filter" data-field="from"><option value="">Đầu</option>${weekOptions}</select></label>
+    <label>Đến tuần <select data-change="cf-filter" data-field="to"><option value="">Cuối</option>${toOptions}</select></label>
+    <label>Loại <select data-change="cf-filter" data-field="kind">${kindOptions}</select></label>
+    <label class="radio"><input type="checkbox" data-change="cf-filter" data-field="summary" ${f.summary ? 'checked' : ''}> Chỉ dòng tổng hợp</label>
+    <label class="radio"><input type="checkbox" data-change="cf-filter" data-field="hideZero" ${f.hideZero ? 'checked' : ''}> Ẩn dòng bằng 0</label>
+    <button type="button" data-action="cf-reset">Đặt lại</button>
+    <span class="muted">Hiển thị ${cols.length}/${cf.weeks.length} tuần · ${lineCount} dòng</span>
+  </div>
   <div class="status-line">Đơn vị USD'000K. Tuần thực tế (TT) lấy số đã nhập; tuần dự báo (DB) tính từ danh sách thanh toán và thu.</div>
-  <div class="table-wrap sticky"><table class="dense cf">
-    <thead><tr><th class="sticky-col">Mục</th>${head}</tr></thead>
-    <tbody>${body}</tbody>
-  </table></div>`;
+  ${table}`;
 }
 
 // ---------- Opex ----------

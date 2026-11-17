@@ -3,7 +3,7 @@ import { runAll, todayKey } from '../src/engine.js';
 import { buildQuality } from '../src/quality.js';
 import { importWorkbook } from '../src/importer.js';
 import { createLocalStore, createCloudStore } from './store.js';
-import { render } from './views.js';
+import { render, CF_FILTER_DEFAULT } from './views.js';
 import { toNum, toText, toDate } from './format.js';
 import { firebaseConfig } from '../firebase-config.js';
 
@@ -17,6 +17,7 @@ const state = {
   chain: null,
   Q: null,
   pay: { q: '', include: '', cur: '', cat: '', page: 0 },
+  cf: { ...CF_FILTER_DEFAULT },
   dayKey: null,
   importPreview: null,
   importStatus: '',
@@ -92,6 +93,11 @@ async function onClick(e) {
 
       case 'pay-page':
         state.pay.page = Math.max(0, (state.pay.page || 0) + Number(el.dataset.dir));
+        paint();
+        break;
+
+      case 'cf-reset':
+        state.cf = { ...CF_FILTER_DEFAULT };
         paint();
         break;
 
@@ -217,6 +223,11 @@ async function onChange(e) {
 
       case 'cfmode':
         await store.patchSettings({ cfSourceLinks: el.value === 'source' });
+        break;
+
+      case 'cf-filter':
+        state.cf = { ...state.cf, [el.dataset.field]: el.type === 'checkbox' ? el.checked : el.value };
+        paint();
         break;
 
       default:

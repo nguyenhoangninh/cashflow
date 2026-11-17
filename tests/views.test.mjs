@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runAll } from '../src/engine.js';
 import { buildQuality } from '../src/quality.js';
-import { render, TABS } from '../js/views.js';
+import { render, TABS, filterCashflow, CF_FILTER_DEFAULT } from '../js/views.js';
 import { fmtInt, fmt2, fmtDate, esc, toNum, toDate } from '../js/format.js';
 import { emptyDataset, withDefaults, reduce } from '../js/store.js';
 
@@ -125,4 +125,42 @@ test('store reducers update the dataset without mutating the input', () => {
   const rec = reduce.recon(base, '2026-10-01', { uobVnd: 10 });
   assert.equal(rec.recon['2026-10-01'].uobVnd, 10);
   assert.equal(reduce.settings(base, { minVnd: 1 }).settings.minVnd, 1);
+});
+
+test('cashflow filters keep only the chosen weeks, kinds and rows', () => {
+  const cf = chain.cashflow;
+  const all = filterCashflow(cf, CF_FILTER_DEFAULT);
+  assert.equal(all.cols.length, cf.weeks.length);
+  assert.equal(all.rows.length, cf.rows.length);
+
+  const range = filterCashflow(cf, { ...CF_FILTER_DEFAULT, from: '1', to: '3' });
+  assert.deepEqual(range.cols, [1, 2, 3]);
+
+  const actualOnly = filterCashflow(cf, { ...CF_FILTER_DEFAULT, kind: 'actual' });
+  assert.ok(actualOnly.cols.every((i) => cf.weeks[i].actual));
+  const forecastOnly = filterCashflow(cf, { ...CF_FILTER_DEFAULT, kind: 'forecast' });
+  assert.ok(forecastOnly.cols.every((i) => !cf.weeks[i].actual));
+
+  const summary = filterCashflow(cf, { ...CF_FILTER_DEFAULT, summary: true });
+  assert.ok(summary.rows.every((r) => r.type !== 'header'));
+  assert.ok(summary.rows.length < cf.rows.length);
+  assert.ok(summary.rows.some((r) => r.type === 'ending'));
+
+  const noZero = filterCashflow(cf, { ...CF_FILTER_DEFAULT, hideZero: true });
+  assert.ok(noZero.rows.every((r) => r.type === 'header' || r.values.some((v) => Math.abs(Number(v) || 0) >= 0.005)));
+  // a section header is kept only when a row under it survives
+  noZero.rows.forEach((r, i) => {
+    if (r.type === 'header') assert.ok(noZero.rows[i + 1] && noZero.rows[i + 1].type !== 'header');
+  });
+});
+
+test('cashflow screen shows the filter bar and the filtered table', () => {
+  const html = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, summary: true, from: '0', to: '2' } });
+  assert.match(html, /data-field="summary"[^>]*checked/);
+  assert.match(html, /data-action="cf-reset"/);
+  assert.match(html, /Hiển thị 3\/\d+ tuần/);
+  assert.ok(balanced(html, 'table'));
+  assert.ok(!html.includes('class="section"'));
+  const none = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, from: '5', to: '1' } });
+  assert.match(none, /Không có tuần nào khớp bộ lọc/);
 });
