@@ -106,15 +106,16 @@ function shell(view, s, body) {
   const err = st.state === 'error' ? `<div class="notice bad">${esc(st.message)}</div>` : '';
   const [title, desc] = PAGE_INFO[view] || PAGE_INFO.overview;
   return `<div class="shell">
+    <header class="top">
+      <div class="brand"><div class="brand-mark">S</div><div><div class="brand-name">SVL Dự báo dòng tiền</div><div class="brand-sub">Starry Vietnam · Cashflow</div></div></div>
+      <div class="grow"></div>
+      <div class="topbar-actions">${account}</div>
+    </header>
     <aside class="sidebar">
-      <div class="brand"><div class="brand-mark">S</div><div><div class="brand-name">SVL Cashflow</div><div class="brand-sub">Dự báo dòng tiền</div></div></div>
       <nav class="nav" aria-label="Điều hướng">${nav}</nav>
     </aside>
     <div class="main">
-      <header class="topbar">
-        <div class="page-title"><h1>${esc(title)}</h1><p>${esc(desc)}</p></div>
-        <div class="topbar-actions">${account}</div>
-      </header>
+      <div class="page-title"><h1>${esc(title)}</h1><p>${esc(desc)}</p></div>
       <div class="flash">${msg}${err}</div>
       <section class="screen">${body}</section>
     </div>
