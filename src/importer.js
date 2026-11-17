@@ -2,7 +2,7 @@
 // Works with SheetJS (xlsx). Usage: importWorkbook(XLSX, arrayBuffer) -> dataset.
 // Supplier bank account numbers (Payment Request List column W) are NOT imported on purpose.
 
-import { CATEGORIES } from './structure.js';
+import { CATEGORIES, CASHFLOW_ROWS } from './structure.js';
 
 const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
 
@@ -35,7 +35,7 @@ export function importWorkbook(XLSX, buffer) {
     cellStyles: false,
     sheets: [
       'Overview', 'Opening Balances', 'Payment Request List', 'Receipts', 'FX Transactions',
-      'Bank Adjustments', 'Reconciliation', 'Opex Control',
+      'Bank Adjustments', 'Reconciliation', 'Opex Control', 'Cashflow_Summary',
     ],
   });
   const need = (name) => {
@@ -248,8 +248,30 @@ export function importWorkbook(XLSX, buffer) {
     buy: num(fxg('E3')) ?? 26250,
   };
 
+  // Import confidential historical values into the authenticated dataset
+  // instead of reading them from public JavaScript constants.
+  const cs = wb.Sheets['Cashflow_Summary'];
+  const cashflowActuals = {};
+  let cashflowOpening = null;
+  let cashflowOpeningStored = {};
+  if (cs) {
+    const g = get(cs);
+    const firstCode = (index) => String.fromCharCode(66 + index); // B..Q, 16 actual weeks
+    for (const row of CASHFLOW_ROWS) {
+      const values = Array.from({ length: 16 }, (_, i) => num(g(firstCode(i) + row.row)));
+      if (values.some(v => v !== null)) cashflowActuals[String(row.row)] = values;
+    }
+    cashflowOpening = num(g('B8'));
+    cashflowOpeningStored = Object.fromEntries(
+      Array.from({ length: 7 }, (_, i) => [String(i), num(g(firstCode(i) + '8'))])
+        .filter(([, value]) => value !== null));
+  }
+
   return {
     version: 1,
+    cashflowActuals,
+    cashflowOpening,
+    cashflowOpeningStored,
     source: 'SVL_Payment_Ver6_Final_Ver_2.xlsm',
     settings,
     accounts,
