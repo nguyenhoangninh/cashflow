@@ -69,7 +69,7 @@ const minBy = (arr, key) => arr.reduce((best, x) => (best == null || x[key] < be
 
 // Whole screen = tabs + status line + current view
 export function render(view, s) {
-  const body = s.status?.mode === 'cloud' && !s.user
+  const body = s.status?.mode === 'cloud' && (!s.user || !s.status?.role)
     ? viewLogin(s)
     : !s.ds
       ? viewImport(s)
@@ -102,7 +102,7 @@ function shell(view, s, body) {
   const st = s.status || {};
   const account = st.mode === 'cloud'
     ? (s.user
-      ? `<span class="pill ok">Đã đăng nhập</span><button data-action="logout">Đăng xuất</button>`
+      ? `<span class="pill ok">${s.status?.role ? 'Vai trò: ' + esc(s.status.role) : 'Đang xác thực'}</span><button data-action="logout">Đăng xuất</button>`
       : `<button class="primary" data-action="login">Đăng nhập Google</button>`)
     : `<span class="pill">Lưu trên trình duyệt</span>`;
   const msg = s.message ? `<div class="notice ${esc(s.messageKind || '')}">${esc(s.message)}</div>` : '';
@@ -129,12 +129,16 @@ function shell(view, s, body) {
 
 // ---------- sign-in (cloud mode) ----------
 function viewLogin(s) {
-  const msg = s.status?.state === 'error' ? `<div class="notice bad">${esc(s.status.message)}</div>` : '';
+  const signedIn = !!s.user;
+  const problem = s.status?.state === 'forbidden' || s.status?.state === 'error';
+  const msg = problem ? `<div class="notice bad">${esc(s.status.message)}</div>` : '';
   return `<div class="card narrow">
-    <h2>Đăng nhập để xem dữ liệu</h2>
-    <p>Dữ liệu dự báo dòng tiền được dùng chung. Chỉ các tài khoản Google đã được cấp quyền mới xem và sửa được.</p>
-    <button class="primary" data-action="login">Đăng nhập bằng Google</button>
+    <h2>${signedIn ? 'Đang kiểm tra quyền truy cập' : 'Đăng nhập để xem dữ liệu'}</h2>
+    <p>Chỉ những tài khoản Google được cấp quyền trong Firebase mới có thể truy cập dữ liệu SVL Cashflow.</p>
+    ${signedIn ? `<p class="small muted">Firebase UID của tài khoản: <code>${esc(s.user.uid)}</code></p>`
+      : '<button class="primary" data-action="login">Đăng nhập bằng Google</button>'}
     ${msg}
+    ${signedIn && !problem ? '<p>Đang tải quyền từ Firebase…</p>' : ''}
   </div>`;
 }
 
