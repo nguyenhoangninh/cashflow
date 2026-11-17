@@ -225,10 +225,16 @@ async function onChange(e) {
         await store.patchSettings({ cfSourceLinks: el.value === 'source' });
         break;
 
-      case 'cf-filter':
-        state.cf = { ...state.cf, [el.dataset.field]: el.type === 'checkbox' ? el.checked : el.value };
+      case 'cf-filter': {
+        const field = el.dataset.field;
+        const value = el.type === 'checkbox' ? el.checked : el.value;
+        // Changing the month clears the week range, because the range only lists that month's weeks.
+        state.cf = field === 'month'
+          ? { ...state.cf, month: value, from: '', to: '' }
+          : { ...state.cf, [field]: value };
         paint();
         break;
+      }
 
       default:
         break;

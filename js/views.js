@@ -511,14 +511,18 @@ function weekly(s) {
 
 // ---------- Cashflow (USD'000K) ----------
 // Default filters of the cashflow screen (also used by the reset button in app.js).
-export const CF_FILTER_DEFAULT = { from: '', to: '', kind: 'all', summary: false, hideZero: false };
+export const CF_FILTER_DEFAULT = { month: '', from: '', to: '', kind: 'all', summary: false, hideZero: false };
 const CF_SUMMARY = ['sum_receipt', 'sum_opex', 'sum_capex', 'net', 'ending', 'opening'];
+// Week codes look like "6.1" (month 6, week 1), so the month is the part before the dot.
+const monthOf = (code) => String(code).split('.')[0];
 
 // Keeps the week columns and rows that match the filters. Section headers stay only when a row below them is shown.
 export function filterCashflow(cf, f) {
+  const month = f.month ? String(f.month) : '';
   const from = f.from === '' || f.from == null ? 0 : Number(f.from);
   const to = f.to === '' || f.to == null ? cf.weeks.length - 1 : Number(f.to);
   const cols = cf.weeks.map((_, i) => i).filter((i) => i >= from && i <= to
+    && (!month || monthOf(cf.weeks[i].code) === month)
     && (f.kind === 'all' || (f.kind === 'actual') === cf.weeks[i].actual));
   const isZero = (r) => r.values.every((v) => Math.abs(Number(v) || 0) < 0.005);
   const rows = [];
@@ -541,8 +545,16 @@ function cashflow(s) {
   const mode = s.ds.settings.cfSourceLinks ? 'source' : 'chain';
   const f = { ...CF_FILTER_DEFAULT, ...(s.cf || {}) };
   const { cols, rows } = filterCashflow(cf, f);
-  const weekOptions = cf.weeks.map((w, i) => `<option value="${i}" ${String(f.from) === String(i) ? 'selected' : ''}>${esc(w.code)} (${w.actual ? 'TT' : 'DB'})</option>`).join('');
-  const toOptions = cf.weeks.map((w, i) => `<option value="${i}" ${String(f.to) === String(i) ? 'selected' : ''}>${esc(w.code)} (${w.actual ? 'TT' : 'DB'})</option>`).join('');
+  // With a month chosen, the week range only lists the weeks of that month.
+  const month = f.month ? String(f.month) : '';
+  const weekIdx = cf.weeks.map((_, i) => i).filter((i) => !month || monthOf(cf.weeks[i].code) === month);
+  const weekOptions = weekIdx.map((i) => `<option value="${i}" ${String(f.from) === String(i) ? 'selected' : ''}>${esc(cf.weeks[i].code)} (${cf.weeks[i].actual ? 'TT' : 'DB'})</option>`).join('');
+  const toOptions = weekIdx.map((i) => `<option value="${i}" ${String(f.to) === String(i) ? 'selected' : ''}>${esc(cf.weeks[i].code)} (${cf.weeks[i].actual ? 'TT' : 'DB'})</option>`).join('');
+  const monthCodes = [...new Set(cf.weeks.map((w) => monthOf(w.code)))];
+  const monthOptions = [['', 'Tất cả tháng'], ...monthCodes.map((m) => {
+    const first = cf.weeks.find((w) => monthOf(w.code) === m);
+    return [m, `Tháng ${Number(m)} (${first.actual ? 'TT' : 'DB'})`];
+  })].map(([v, t]) => `<option value="${esc(v)}" ${month === v ? 'selected' : ''}>${t}</option>`).join('');
   const kindOptions = [['all', 'Tất cả tuần'], ['actual', 'Chỉ tuần thực tế (TT)'], ['forecast', 'Chỉ tuần dự báo (DB)']]
     .map(([v, t]) => `<option value="${v}" ${f.kind === v ? 'selected' : ''}>${t}</option>`).join('');
   const lineCount = rows.filter((r) => r.type !== 'header').length;
@@ -572,6 +584,7 @@ function cashflow(s) {
     <label class="radio"><input type="radio" name="cfmode" value="source" data-change="cfmode" ${mode === 'source' ? 'checked' : ''}> Như file gốc (V8:AC8)</label>
   </div>
   <div class="toolbar filters">
+    <label>Tháng <select data-change="cf-filter" data-field="month">${monthOptions}</select></label>
     <label>Từ tuần <select data-change="cf-filter" data-field="from"><option value="">Đầu</option>${weekOptions}</select></label>
     <label>Đến tuần <select data-change="cf-filter" data-field="to"><option value="">Cuối</option>${toOptions}</select></label>
     <label>Loại <select data-change="cf-filter" data-field="kind">${kindOptions}</select></label>

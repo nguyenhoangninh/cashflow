@@ -164,3 +164,16 @@ test('cashflow screen shows the filter bar and the filtered table', () => {
   const none = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, from: '5', to: '1' } });
   assert.match(none, /Không có tuần nào khớp bộ lọc/);
 });
+
+test('cashflow month filter keeps only the weeks of that month', () => {
+  const cf = chain.cashflow;
+  const july = filterCashflow(cf, { ...CF_FILTER_DEFAULT, month: '7' });
+  assert.equal(july.cols.length, 4);
+  assert.ok(july.cols.every((i) => cf.weeks[i].code.startsWith('7.')));
+  // a month that is entirely forecast combined with the actual-only kind leaves nothing
+  assert.equal(filterCashflow(cf, { ...CF_FILTER_DEFAULT, month: '10', kind: 'actual' }).cols.length, 0);
+  const html = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, month: '10' } });
+  assert.match(html, /Tháng 10 \(DB\)/);
+  assert.match(html, /<option value="10\.1"|>10\.1 \(DB\)/);
+  assert.ok(!/>6\.1 \(TT\)/.test(html.split('data-field="from"')[1].split('</select>')[0]));
+});
