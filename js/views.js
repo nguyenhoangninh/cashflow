@@ -71,12 +71,14 @@ const minBy = (arr, key) => arr.reduce((best, x) => (best == null || x[key] < be
 export function render(view, s) {
   const cloud = s.status?.mode === 'cloud';
   const authorized = !!s.user && !!s.status?.role;
+  const recoveryImport = cloud && authorized && s.status?.role === 'admin'
+    && s.status?.sync === 'server' && s.recoveryImport;
   const body = cloud && !authorized
     ? viewLogin(s)
-    : cloud && (['loading', 'authorizing', 'migrating'].includes(s.status?.state)
+    : cloud && !recoveryImport && (['loading', 'authorizing', 'migrating', 'import-error'].includes(s.status?.state)
         || s.status?.sync !== 'server')
       ? viewCloudWait(s)
-    : (!s.ds || (cloud && s.status?.state === 'empty'))
+    : (recoveryImport || !s.ds || (cloud && s.status?.state === 'empty'))
       ? (cloud && s.status?.role !== 'admin' ? viewCloudEmpty(s) : viewImport(s))
       : ({
       overview: overview,
@@ -156,7 +158,10 @@ function viewCloudWait(s) {
   return `<div class="card narrow">
     <h2>Đang đồng bộ Firestore Realtime</h2>
     <p>${esc(s.status?.message || 'Đang chờ xác nhận từ máy chủ Firebase…')}</p>
-    <p class="muted">Chưa thể chỉnh sửa hoặc nhập dữ liệu cho đến khi Firestore xác nhận kết nối.</p>
+    <p class="muted">Không chỉnh sửa dữ liệu khi kết nối chưa được xác nhận. Bản nhập chưa hoàn tất có thể được khôi phục từ JSON sao lưu riêng tư.</p>
+    ${s.status?.state === 'migrating' && !s.status?.migrationActive
+      && s.status?.sync === 'server' && s.status?.role === 'admin'
+        ? '<button type="button" data-action="migration-retry">Khôi phục nhập dữ liệu từ bản sao lưu</button>' : ''}
   </div>`;
 }
 function viewCloudEmpty(s) {
