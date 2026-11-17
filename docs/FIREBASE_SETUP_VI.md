@@ -1,10 +1,11 @@
 # HƯỚNG DẪN KÍCH HOẠT FIREBASE — SVL CASHFLOW
-**Ngày chuẩn bị:** 17/11/2026 · **Trạng thái:** Cấu hình mã nguồn trên PR #1, chưa kích hoạt Firebase thực tế.
+**Ngày chuẩn bị:** 17/11/2026 · **Trạng thái:** Đã nhận Web App Config và commit lên PR #1; chưa kích hoạt Firebase Authentication/Rules thực tế và chưa triển khai website.
 
 ## Tình trạng hiện tại
 - Website: https://nguyenhoangninh.github.io/cashflow/
 - GitHub: https://github.com/nguyenhoangninh/cashflow
-- `firebase-config.js` đang chứa `REPLACE_...`. Nếu chưa sửa, ứng dụng vẫn lưu vào `localStorage` của từng trình duyệt.
+- Firebase project: **Cashflow** · Project ID: **`cashflow-aff9d`**.
+- `firebase-config.js` trên nhánh PR đã có Web App Config do chủ dự án cung cấp. **Trên nhánh `main` production có thể vẫn còn placeholder và dữ liệu vẫn lưu `localStorage`.**
 - `firestore.rules` đã được chuẩn bị theo Firebase UID, quyền `viewer`, `editor`, `admin`, nhưng CHƯA có hiệu lực trong Firestore cho đến khi được triển khai qua Firebase Console / CLI.
 - **GitHub connector không phải Firebase connector:** đọc/ghi GitHub không đồng nghĩa với quyền tạo Firebase project hay đọc Firestore.
 
@@ -15,12 +16,12 @@
 4. **Cảnh báo ưu tiên cao:** `src/structure.js` có chứa lịch sử Cashflow/Số dư ngân hàng thực tế. Do repo hiện tại public, phải chuyển lịch sử tài chính sang dữ liệu được xác thực và xử lý cả Git history trước khi đưa hệ thống chứa dữ liệu thật vào production. Việc xóa ở commit mới không xóa phiên bản cũ.
 
 ## Giai đoạn 1 — Tạo Firebase Project (thực hiện bằng tài khoản tổ chức)
-1. Mở https://console.firebase.google.com/ và chọn **Add project**. Dùng một project riêng cho SVL Cashflow do doanh nghiệp sở hữu (ví dụ: đặt display name `SVL Cashflow`; Project ID là do Firebase cấp và phải là duy nhất).
+1. Đã tạo Firebase project **Cashflow** (`cashflow-aff9d`). Kiểm tra dự án được quản trị bởi tài khoản tổ chức/phù hợp chính sách doanh nghiệp, tránh phụ thuộc một tài khoản cá nhân.
 2. Chọn gói phù hợp với chính sách của doanh nghiệp, tạo tài khoản billing khi Firebase yêu cầu. Không giả định dự án luôn nằm trong hạn mức miễn phí.
 3. Firebase Console → **Authentication** → **Sign-in method** → bật **Google** (cung cấp project support email nếu được yêu cầu).
 4. Authentication → **Settings** → **Authorized domains** → thêm **`nguyenhoangninh.github.io`** (chỉ hostname, không có `https://` hoặc đường dẫn `/cashflow`).
 5. **Build → Firestore Database → Create database** → chọn **production mode**, database `(default)`, vùng thích hợp (ví dụ `asia-southeast1` nếu khả dụng). Quyết định vùng trước khi tạo vì đây là lựa chọn khó/không thể thay đổi.
-6. **Project settings → General → Your apps → Web app**: đăng ký ứng dụng Web. Lấy Firebase Web Config (apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId). Đây là cấu hình client (không phải service-account key).
+6. Đã đăng ký ứng dụng Web, và cấu hình đã có trên **nhánh PR #1** (`firebase-config.js`). Đây là cấu hình client, không phải service-account key.
 7. Không tải file private key/service account lên GitHub hoặc gửi private key vào ChatGPT. Firebase Web API key có thể nằm trong mã client với hạn chế API phù hợp, nhưng không thay thế Security Rules.
 
 ## Giai đoạn 2 — Triển khai Firestore Rules **trước** khi kích hoạt cloud
@@ -36,7 +37,7 @@
 4. Đánh giá hiệu năng: các luật đọc `members/{uid}` khi thực hiện thao tác dữ liệu; giao dịch có nhiều writes đã được chia batch nhỏ hơn, vẫn cần kiểm thử trong Emulator trước khi nhập dữ liệu lớn.
 
 ## Giai đoạn 3 — Kích hoạt kết nối Firebase Web
-1. Thay giá trị placeholder trong `firebase-config.js` bằng **Web App Config** thực của dự án.
+1. Đã thực hiện trên **nhánh PR #1**: thay placeholder trong `firebase-config.js` bằng Web App Config thực của dự án `cashflow-aff9d`.
 2. Review mã và gửi qua PR riêng; merge sau khi Rules đã được Publish và kiểm thử.
 3. Tải lại Cashflow; bạn sẽ thấy nút **Đăng nhập Google** thay vì chế độ lưu trên trình duyệt.
 4. Đăng nhập Google bằng tài khoản được công ty phê duyệt. Màn hình sẽ hiện **Firebase UID** của tài khoản (nhưng lúc này chưa có quyền đọc dữ liệu).
@@ -77,3 +78,9 @@
 - Firebase Emulator Rules test: unauthenticated DENY; signed-in without role DENY; viewer READ only; editor READ & transaction WRITE nhưng config DENY; admin READ & config/import WRITE; role revocation.
 - Test giao diện Chrome/mobile, import từ JSON backup và rollback.
 - Code review: không có service-account credentials, số tài khoản nhạy cảm và dữ liệu nguồn trong repository public.
+
+## Cập nhật ngày 17/11/2026
+- Đã xác minh có Firebase Web App Config; mã nguồn trong PR #1 đã được cập nhật.
+- **Chưa xác minh** Google Authentication Provider, Authorized domains và Security Rules đã được kích hoạt trong Firebase Console.
+- Không đưa PR lên `main` khi còn dữ liệu tài chính lịch sử trong JavaScript công khai, chưa sao lưu dữ liệu Local và chưa chạy kiểm thử bảo mật với người dùng thực.
+- Để ChatGPT đọc Firestore trực tiếp cần một backend được cấp quyền riêng (MCP/OAuth hoặc ứng dụng tích hợp tương đương). Cấu hình Web App không trao cho ChatGPT quyền đó.
