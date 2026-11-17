@@ -283,7 +283,7 @@ async function onChange(e) {
         state.importStatus = `Đang đọc ${file.name}…`;
         paint();
         let ds;
-        if (/\\.json$/i.test(file.name)) {
+        if (/\.json$/i.test(file.name)) {
           if (file.size > 25 * 1024 * 1024) throw new Error('File JSON vượt giới hạn 25 MB.');
           const data = JSON.parse(await file.text());
           if (!data || typeof data !== 'object' || !data.settings ||
