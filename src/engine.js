@@ -4,7 +4,7 @@
 // Dates are ISO keys 'YYYY-MM-DD' (strings compare correctly as dates).
 // Money: VND in dong, USD in dollars. Cashflow_Summary uses USD thousands ("USD'000K").
 
-import { WEEKS, CATEGORIES, CASHFLOW_ROWS, CASHFLOW_ACTUALS, CASHFLOW_OPENING } from './structure.js';
+import { WEEKS, CATEGORIES, CASHFLOW_ROWS } from './structure.js';
 
 const CLOSED_FLAGS = new Set(['old', 'cancel', 'cancelled', 'canceled', 'void']);
 const ALERT_OK = 'OK';
@@ -478,9 +478,10 @@ export function computeWeekly(ds, c, plan) {
 const SOURCE_LINK_FROM = 20;
 
 export function computeCashflow(ds, c, plan, opts = {}) {
-  const actualWeeks = opts.actualWeeks ?? 16;
-  const actuals = ds.cashflowActuals || CASHFLOW_ACTUALS;
-  const openingStored = ds.cashflowOpening ?? CASHFLOW_OPENING;
+  // Historical actuals must come from an authenticated dataset, never from public source.
+  const actuals = ds.cashflowActuals || {};
+  const actualWeeks = opts.actualWeeks ?? (Object.keys(actuals).length ? 16 : 0);
+  const openingStored = Number(ds.cashflowOpening) || 0;
   const receiptRate = plan.receiptRate ?? c.fxDefault.sell;
 
   const rcUsdByWeekCat = {};
