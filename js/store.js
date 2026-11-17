@@ -146,7 +146,7 @@ export async function createCloudStore(cfg) {
   const listeners = new Set();
   const unsubs = [];
   let memberUnsub = null;
-  const status = { mode: 'cloud', role: null, sync: 'connecting', state: 'signed-out', message: 'Chưa đăng nhập' };
+  const status = { mode: 'cloud', role: null, sync: 'connecting', migrationActive: false, state: 'signed-out', message: 'Chưa đăng nhập' };
   const snapshotMeta = {};
 
   const emit = () => listeners.forEach((fn) => fn(ds, status));
@@ -181,7 +181,9 @@ export async function createCloudStore(cfg) {
     if (parts.config?.dataStatus === 'importing') {
       ds = null;
       status.state = 'migrating';
-      status.message = 'Đang nhập dữ liệu Firestore. Không đóng tab đang nhập.';
+      status.message = status.migrationActive
+        ? 'Đang nhập dữ liệu Firestore. Không đóng tab đang nhập.'
+        : 'Phát hiện lần nhập dữ liệu chưa hoàn tất. Nếu tab nhập cũ đã đóng, Admin có thể chọn nhập lại bản sao lưu.';
     } else {
       ds = assemble();
       status.state = ds.importedAt ? 'ready' : 'empty';
@@ -310,6 +312,7 @@ export async function createCloudStore(cfg) {
       if (memberUnsub) { memberUnsub(); memberUnsub = null; }
       clearData();
       status.role = null;
+      status.migrationActive = false;
       status.state = 'signed-out';
       status.message = 'Chưa đăng nhập';
       emit();
@@ -328,6 +331,7 @@ export async function createCloudStore(cfg) {
         throw new Error('Bản sao lưu thiếu lịch sử Cashflow. Hãy dùng bản sao lưu đầy đủ mới hoặc file Excel gốc có sheet Cashflow_Summary.');
       }
       const importedAt = new Date().toISOString();
+      status.migrationActive = true;
       status.state = 'migrating';
       status.message = 'Đang khởi tạo bản nhập Firestore…';
       emit();
@@ -352,10 +356,12 @@ export async function createCloudStore(cfg) {
           cashflowOpeningStored: clean.cashflowOpeningStored,
           importedAt, dataStatus: 'ready',
         });
+        status.migrationActive = false;
         status.message = 'Đã ghi dữ liệu lên Firestore. Đang chờ các listener cập nhật…';
         emit();
       } catch (error) {
-        status.state = 'migrating';
+        status.migrationActive = false;
+        status.state = 'import-error';
         status.message = 'Nhập chưa hoàn tất. Giữ bản JSON, kiểm tra kết nối và thử nhập lại. ' + (error?.message || error);
         emit();
         throw error;
