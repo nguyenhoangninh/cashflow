@@ -27,7 +27,7 @@ code{font-family:ui-monospace,Consolas,monospace}
 <p class="alert"><strong>Chú ý bảo mật:</strong> File sao lưu chứa dữ liệu tài chính nội bộ đầy đủ, có thể gồm tên đối tác và thông tin tài khoản. Chỉ lưu trên thiết bị tin cậy. Không gửi file lên GitHub hoặc chia sẻ công khai.</p>
 <h2>Kiểm tra dữ liệu cục bộ</h2>
 <p id="status" role="status">Đang kiểm tra dữ liệu trong trình duyệt…</p>
-<button id="download" type="button" disabled>Tải bản sao lưu JSON</button>
+<button id="download" type="button" disabled>Tải bản sao lưu đầy đủ JSON</button>
 <p class="small muted">Chỉ tải xuống khi bạn nhấn nút và xác nhận. Trang không gọi API, không đăng nhập, không truy cập Firebase và không tự gửi dữ liệu ra bên ngoài.</p>
 </section>
 <section class="card">
@@ -36,7 +36,8 @@ code{font-family:ui-monospace,Consolas,monospace}
 <p class="small muted">Dữ liệu trên trình duyệt khác hoặc máy khác sẽ không xuất hiện ở đây. Hãy mở trang này trên chính trình duyệt bạn đang dùng với website Cashflow.</p>
 </section>
 </main>
-<script>
+<script type="module">
+import { CASHFLOW_ACTUALS, CASHFLOW_OPENING, CASHFLOW_OPENING_STORED } from './src/structure.js';
 "use strict";
 (() => {
   const KEY = "svl-cashflow-dataset-v1";
@@ -55,11 +56,21 @@ code{font-family:ui-monospace,Consolas,monospace}
       message.textContent = "Dữ liệu hiện tại không đúng cấu trúc Cashflow. Chưa tạo file; vui lòng kiểm tra nguồn dữ liệu trước.";
       return;
     }
-    data = parsed;
+    // Preserve actuals previously embedded in public code, but export only to the user's device.
+    data = {
+      ...parsed,
+      cashflowActuals: parsed.cashflowActuals && Object.keys(parsed.cashflowActuals).length
+        ? parsed.cashflowActuals : CASHFLOW_ACTUALS,
+      cashflowOpening: Number.isFinite(parsed.cashflowOpening)
+        ? parsed.cashflowOpening : CASHFLOW_OPENING,
+      cashflowOpeningStored: parsed.cashflowOpeningStored && Object.keys(parsed.cashflowOpeningStored).length
+        ? parsed.cashflowOpeningStored : CASHFLOW_OPENING_STORED,
+    };
     message.textContent = "Đã tìm thấy dữ liệu Cashflow cục bộ.\n"
       + "Payment Requests: " + data.payments.length + " dòng\n"
       + "Receipts: " + data.receipts.length + " dòng\n"
       + "Ngày nhập dữ liệu gần nhất: " + (data.importedAt || "(không xác định)") + "\n"
+      + "Lịch sử Cashflow: " + Object.keys(data.cashflowActuals || {}).length + " dòng (kèm số dư đầu kỳ).\\n"
       + "Dữ liệu chưa được gửi đi.";
     button.disabled = false;
   } catch (_) {
