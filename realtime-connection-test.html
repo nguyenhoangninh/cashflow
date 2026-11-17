@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+<title>SVL Firestore Realtime Test</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#263644;background:#f2f6f7;color-scheme:light}
+body{margin:0;padding:28px 14px} main{max-width:750px;margin:auto}section{background:white;border:1px solid #d9e2e5;border-radius:14px;padding:22px;margin-bottom:15px}h1{margin:0 0 6px;font-size:24px}
+button{border:1px solid #9cb7b1;background:white;color:#195849;padding:10px 14px;border-radius:8px;cursor:pointer;margin:4px;font:inherit}
+button.primary{background:#176e56;color:white}button:disabled{opacity:.5;cursor:not-allowed}
+.note{border-left:4px solid #daab46;background:#fff9e8;padding:12px;margin:12px 0;line-height:1.5}
+.muted{color:#687985}.small{font-size:13px}.status{background:#eff3f5;padding:12px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.pass{color:#11764e}.fail{color:#a02221}.log{max-height:240px;overflow:auto;white-space:pre-wrap;font:13px/1.6 ui-monospace,Consolas,monospace}
+</style>
+</head>
+<body><main>
+<section><h1>SVL Cashflow — Realtime Test</h1>
+<p class="muted">Firebase <code>cashflow-aff9d</code> · Chỉ thử tín hiệu, không nhập Payment Request hoặc dữ liệu tài chính.</p>
+<p class="note">Công cụ chỉ ghi/xóa trường thử nghiệm <code>config/main.__rtTest</code>. Trường này không ảnh hưởng báo cáo Cashflow, và sẽ được xóa khi nhấn <b>Xóa dấu thử nghiệm</b>.</p>
+<button class="primary" id="login" disabled>Đăng nhập Google</button>
+<button id="logout" disabled>Đăng xuất</button>
+<p id="auth" class="status">Đang tải Firebase…</p>
+</section>
+<section><h2>Kiểm thử Firestore Realtime</h2>
+<p>Mở trang này trên hai tab, đăng nhập cả hai. Nhấn <b>Gửi thử Realtime</b> ở tab A; tab B sẽ nhận sự kiện từ Firestore qua <code>onSnapshot()</code>.</p>
+<button class="primary" id="send" disabled>Gửi thử Realtime</button>
+<button id="clear" disabled>Xóa dấu thử nghiệm</button>
+<p id="status" class="status">Chưa đăng nhập.</p>
+<h3>Nhật ký sự kiện</h3><div class="log" id="log"></div>
+</section></main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, inMemoryPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
+import { initializeFirestore, memoryLocalCache, doc, onSnapshot, setDoc, updateDoc, deleteField } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+
+const config = {
+  apiKey:"AIzaSyDkQFJ0EpgNkG24_lU-60vzEVCclOjQ3Fg",
+  authDomain:"cashflow-aff9d.firebaseapp.com",
+  projectId:"cashflow-aff9d",
+  storageBucket:"cashflow-aff9d.firebasestorage.app",
+  messagingSenderId:"473282135894",
+  appId:"1:473282135894:web:f4b2b3fb6ddae2ae8bf8f7"
+};
+const el=id=>document.getElementById(id);
+const log=text=>{const e=el("log");e.textContent+=(new Date().toLocaleTimeString("vi-VN"))+"  "+text+"\n";e.scrollTop=e.scrollHeight;};
+const status=(text,kind="")=>{el("status").textContent=text;el("status").className="status "+kind;};
+const clientId="tab-"+Math.random().toString(36).slice(2,9);
+let stop=null, current=null, role=null;
+try {
+  const app=initializeApp(config,"svl-cashflow-rt-test");
+  const auth=getAuth(app);
+  const db=initializeFirestore(app,{localCache:memoryLocalCache()});
+  await setPersistence(auth,inMemoryPersistence);
+  const target=doc(db,"config","main");
+  el("login").disabled=false;
+  el("login").onclick=async()=>{
+    try{await signInWithPopup(auth,new GoogleAuthProvider());}
+    catch(e){el("auth").textContent="Đăng nhập thất bại: "+(e?.code||e?.message);}
+  };
+  el("logout").onclick=()=>signOut(auth);
+  el("send").onclick=async()=>{
+    if(role!=="admin"||!current)return;
+    el("send").disabled=true;
+    const marker={source:clientId,sentAt:new Date().toISOString()};
+    status("Đã gửi yêu cầu; đang chờ Firestore xác nhận…");
+    try{
+      await setDoc(target,{__rtTest:marker},{merge:true});
+      log("WRITE ACK: máy chủ Firestore xác nhận đã lưu tín hiệu.");
+    }catch(e){status("Ghi thất bại: "+(e?.code||e?.message),"fail");log("WRITE FAIL: "+(e?.code||e?.message));}
+    finally{el("send").disabled=false;}
+  };
+  el("clear").onclick=async()=>{
+    if(role!=="admin"||!current)return;
+    el("clear").disabled=true;
+    try{
+      await updateDoc(target,{__rtTest:deleteField()});
+      log("CLEANUP ACK: trường thử nghiệm đã được xóa.");
+    }catch(e){status("Không xóa được: "+(e?.code||e?.message),"fail");}
+    finally{el("clear").disabled=false;}
+  };
+  onAuthStateChanged(auth,async user=>{
+    if(stop){stop();stop=null;}
+    current=user;role=null;
+    el("login").disabled=!!user; el("logout").disabled=!user;
+    el("send").disabled=true;el("clear").disabled=true;
+    if(!user){el("auth").textContent="Chưa đăng nhập.";status("Hãy đăng nhập Google.");return;}
+    el("auth").textContent="Đã đăng nhập: "+(user.email||user.uid)+". Đang xác thực quyền Admin…";
+    if(!user.emailVerified){status("Email chưa được xác minh; Rules có thể từ chối.","fail");return;}
+    stop=onSnapshot(doc(db,"members",user.uid),snap=>{
+      if(!snap.exists()||snap.data()?.role!=="admin"){
+        role=null;el("send").disabled=true;el("clear").disabled=true;
+        status("UID chưa có quyền Admin trong Firestore.","fail");return;
+      }
+      if(role==="admin")return;
+      role="admin";el("auth").textContent="Đã xác minh Admin qua Firestore: "+(user.email||user.uid);
+      log("AUTH PASS: members/{UID}=admin");
+      el("send").disabled=false;el("clear").disabled=false;
+      // Listen to one harmless config field. Do not expose other config contents.
+      const unSubConfig=onSnapshot(target,{includeMetadataChanges:true},snap=>{
+        const marker=snap.exists()?snap.data().__rtTest:null;
+        const origin=snap.metadata.fromCache?"CACHE":"SERVER";
+        const pending=snap.metadata.hasPendingWrites?"PENDING":"ACK";
+        if(marker){
+          status("Realtime nhận được: "+(marker.source||"other tab")+
+            "\nThời điểm gửi: "+(marker.sentAt||"")+
+            "\nNguồn: "+origin+" · "+pending,origin==="SERVER"&&!snap.metadata.hasPendingWrites?"pass":"");
+          log("SNAPSHOT "+origin+"/"+pending+": "+(marker.source||"other tab"));
+        }else{
+          status("Đã kết nối Firestore. Chưa có dấu thử nghiệm (hoặc đã xóa).\nNguồn: "+origin+" · "+pending,origin==="SERVER"?"pass":"");
+          log("SNAPSHOT "+origin+"/"+pending+": không có dấu thử.");
+        }
+      },e=>{status("Không nghe được config/main: "+(e?.code||e?.message),"fail");});
+      // Capture both unsubscribe callbacks in the outer close function.
+      const oldStop=stop;
+      stop=()=>{oldStop?.();unSubConfig();};
+    },e=>status("Không đọc được quyền Admin: "+(e?.code||e?.message),"fail"));
+  });
+}catch(e){el("auth").textContent="Không thể nạp Firebase SDK: "+(e?.code||e?.message);status("Không ghi dữ liệu.", "fail");}
+</script></body></html>
