@@ -40,7 +40,7 @@ const PAGE_INFO = {
   recon: ['Đối chiếu', 'So sánh số dư thực tế với kế hoạch theo từng ngày.'],
   accounts: ['Số dư đầu kỳ', 'Số dư đầu theo tài khoản và tỷ giá mặc định.'],
   weekly: ['Kế hoạch tuần', 'Thu, chi và số dư cuối theo từng tuần.'],
-  cashflow: ['Dòng tiền', "Báo cáo dòng tiền theo tuần, đơn vị USD'000K."],
+  cashflow: ['Dòng tiền', "Dòng tiền theo tuần, USD'000K. TT: tuần thực tế, DB: tuần dự báo. Bấm tên nhóm để thu gọn hoặc mở ra."],
   opex: ['Opex', "Chi phí hoạt động theo tháng, đơn vị USD'000K."],
   quality: ['Kiểm tra dữ liệu', 'Các khác biệt giữa file gốc và ứng dụng, cùng các dòng dữ liệu nguồn cần xem.'],
   import: ['Nhập file', 'Tải dữ liệu từ file Excel để thay thế dữ liệu hiện tại.'],
@@ -512,12 +512,30 @@ function weekly(s) {
 
 // ---------- Cashflow (USD'000K) ----------
 // Default filters of the cashflow screen (also used by the reset button in app.js).
-export const CF_FILTER_DEFAULT = { month: '', from: '', to: '', kind: 'all', summary: false, hideZero: false };
+// collapsed: group keys (Excel row numbers) that are folded; it is kept when the filters are reset.
+export const CF_FILTER_DEFAULT = { month: '', from: '', to: '', kind: 'all', summary: false, hideZero: false, collapsed: {} };
 const CF_SUMMARY = ['sum_receipt', 'sum_opex', 'sum_capex', 'net', 'ending', 'opening'];
+const CF_LEAF = ['receipt', 'payable', 'opex', 'capex', 'debt', 'buffer'];
+const CF_TOTAL = ['sum_receipt', 'sum_opex', 'sum_capex'];
+// Rows that close a header group: the next header, a TOTAL row, or the net / ending / opening lines.
+const CF_ENDS_GROUP = ['header', ...CF_TOTAL, 'net', 'ending', 'opening'];
 // Week codes look like "6.1" (month 6, week 1), so the month is the part before the dot.
 const monthOf = (code) => String(code).split('.')[0];
 
-// Keeps the week columns and rows that match the filters. Section headers stay only when a row below them is shown.
+// Values shown on a collapsed header: its TOTAL row when the group has one, otherwise the sum of its items.
+function groupTotal(src, start, nWeeks) {
+  const items = [];
+  let j = start + 1;
+  while (j < src.length && !CF_ENDS_GROUP.includes(src[j].type)) items.push(src[j++]);
+  const end = src[j];
+  if (end && CF_TOTAL.includes(end.type)) return end.values;
+  return Array.from({ length: nWeeks }, (_, w) => items
+    .filter((x) => CF_LEAF.includes(x.type))
+    .reduce((a, x) => a + (Number(x.values[w]) || 0), 0));
+}
+
+// Keeps the week columns and rows that match the filters and folds the collapsed groups.
+// Header rows come back with values (their subtotal) when collapsed, and opex_sub rows carry a `collapsed` flag.
 export function filterCashflow(cf, f) {
   const month = f.month ? String(f.month) : '';
   const from = f.from === '' || f.from == null ? 0 : Number(f.from);
@@ -525,18 +543,49 @@ export function filterCashflow(cf, f) {
   const cols = cf.weeks.map((_, i) => i).filter((i) => i >= from && i <= to
     && (!month || monthOf(cf.weeks[i].code) === month)
     && (f.kind === 'all' || (f.kind === 'actual') === cf.weeks[i].actual));
+  const collapsed = f.collapsed || {};
   const isZero = (r) => r.values.every((v) => Math.abs(Number(v) || 0) < 0.005);
+  const src = cf.rows;
   const rows = [];
-  let pendingHeader = null;
-  for (const r of cf.rows) {
+  let pendingHeader = null;   // a header is shown only when a visible item follows it
+  let group = null;           // { collapsed } of the current header group
+  let sub = null;             // { collapsed } while inside the items of an opex_sub row
+  const emit = (row) => {
+    if (pendingHeader) { rows.push(pendingHeader); pendingHeader = null; }
+    rows.push(row);
+  };
+  for (let i = 0; i < src.length; i++) {
+    const r = src[i];
     if (r.type === 'header') {
-      if (!f.summary) pendingHeader = r;
+      sub = null;
+      group = { collapsed: !f.summary && !!collapsed[r.row] };
+      pendingHeader = null;
+      if (group.collapsed) rows.push({ ...r, collapsed: true, values: groupTotal(src, i, cf.weeks.length) });
+      else if (!f.summary) pendingHeader = r;
       continue;
     }
-    if (f.summary && !CF_SUMMARY.includes(r.type)) continue;
+    if (CF_ENDS_GROUP.includes(r.type)) {
+      // TOTAL rows close their group and are hidden while it is folded (the header shows the same numbers)
+      if (CF_TOTAL.includes(r.type)) {
+        const hidden = group && group.collapsed;
+        group = null; sub = null; pendingHeader = null;
+        if (!hidden && !(f.hideZero && isZero(r))) emit({ ...r, indent: 0 });
+        continue;
+      }
+      group = null; sub = null; pendingHeader = null;
+      if (!(f.hideZero && isZero(r))) emit({ ...r, indent: 0 });
+      continue;
+    }
+    if (r.type === 'opex_sub') {
+      sub = { collapsed: !f.summary && !!collapsed[r.row] };
+      if (f.summary || (group && group.collapsed) || (f.hideZero && isZero(r))) continue;
+      emit({ ...r, indent: 1, collapsed: sub.collapsed });
+      continue;
+    }
+    if (f.summary) continue;
+    if ((group && group.collapsed) || (sub && sub.collapsed)) continue;
     if (f.hideZero && isZero(r)) continue;
-    if (pendingHeader) { rows.push(pendingHeader); pendingHeader = null; }
-    rows.push(r);
+    emit({ ...r, indent: sub ? 2 : 1 });
   }
   return { cols, rows };
 }
@@ -549,28 +598,40 @@ function cashflow(s) {
   // With a month chosen, the week range only lists the weeks of that month.
   const month = f.month ? String(f.month) : '';
   const weekIdx = cf.weeks.map((_, i) => i).filter((i) => !month || monthOf(cf.weeks[i].code) === month);
-  const weekOptions = weekIdx.map((i) => `<option value="${i}" ${String(f.from) === String(i) ? 'selected' : ''}>${esc(cf.weeks[i].code)} (${cf.weeks[i].actual ? 'TT' : 'DB'})</option>`).join('');
-  const toOptions = weekIdx.map((i) => `<option value="${i}" ${String(f.to) === String(i) ? 'selected' : ''}>${esc(cf.weeks[i].code)} (${cf.weeks[i].actual ? 'TT' : 'DB'})</option>`).join('');
+  const weekLabel = (i) => `${esc(cf.weeks[i].code)} (${cf.weeks[i].actual ? 'TT' : 'DB'})`;
+  const weekOptions = weekIdx.map((i) => `<option value="${i}" ${String(f.from) === String(i) ? 'selected' : ''}>${weekLabel(i)}</option>`).join('');
+  const toOptions = weekIdx.map((i) => `<option value="${i}" ${String(f.to) === String(i) ? 'selected' : ''}>${weekLabel(i)}</option>`).join('');
   const monthCodes = [...new Set(cf.weeks.map((w) => monthOf(w.code)))];
-  const monthOptions = [['', 'Tất cả tháng'], ...monthCodes.map((m) => {
+  const monthOptions = [['', 'Tất cả'], ...monthCodes.map((m) => {
     const first = cf.weeks.find((w) => monthOf(w.code) === m);
     return [m, `Tháng ${Number(m)} (${first.actual ? 'TT' : 'DB'})`];
   })].map(([v, t]) => `<option value="${esc(v)}" ${month === v ? 'selected' : ''}>${t}</option>`).join('');
-  const kindOptions = [['all', 'Tất cả tuần'], ['actual', 'Chỉ tuần thực tế (TT)'], ['forecast', 'Chỉ tuần dự báo (DB)']]
+  const kindOptions = [['all', 'Tất cả'], ['actual', 'Chỉ TT'], ['forecast', 'Chỉ DB']]
     .map(([v, t]) => `<option value="${v}" ${f.kind === v ? 'selected' : ''}>${t}</option>`).join('');
   const lineCount = rows.filter((r) => r.type !== 'header').length;
   const head = cols.map((i) => {
     const w = cf.weeks[i];
-    return `<th class="${w.actual ? 'actual' : ''}">${esc(w.code)}<div class="sub">${w.actual ? 'TT' : 'DB'}</div></th>`;
+    return `<th class="num ${w.actual ? 'actual' : ''}">${esc(w.code)}<div class="sub">${w.actual ? 'TT' : 'DB'}</div></th>`;
   }).join('');
   const body = rows.map((r) => {
     if (r.type === 'header') {
-      return `<tr class="section"><td class="sticky-col">${esc(r.label.trim())}</td><td colspan="${cols.length}"></td></tr>`;
+      const c = !!r.collapsed;
+      return `<tr class="group${c ? ' is-collapsed' : ''}" data-action="cf-toggle" data-key="${r.row}" title="Bấm để ${c ? 'mở' : 'thu gọn'}">
+      <td class="sticky-col indent-0"><span class="caret">${c ? '▸' : '▾'}</span><span class="lbl" title="${esc(r.label.trim())}">${esc(r.label.trim())}</span></td>
+      ${cols.map((i) => `<td class="num ${cf.weeks[i].actual ? 'actual' : ''}">${c ? k2(r.values[i]) : ''}</td>`).join('')}
+    </tr>`;
+    }
+    if (r.type === 'opex_sub') {
+      const c = !!r.collapsed;
+      return `<tr class="group sub${c ? ' is-collapsed' : ''}" data-action="cf-toggle" data-key="${r.row}" title="Bấm để ${c ? 'mở' : 'thu gọn'}">
+      <td class="sticky-col indent-1"><span class="caret">${c ? '▸' : '▾'}</span><span class="lbl" title="${esc(r.label.trim())}">${esc(r.label.trim())}</span></td>
+      ${cols.map((i) => `<td class="num ${cf.weeks[i].actual ? 'actual' : ''}">${k2(r.values[i])}</td>`).join('')}
+    </tr>`;
     }
     const strong = CF_SUMMARY.includes(r.type);
     return `<tr class="${strong ? 'strong' : ''}">
-      <td class="sticky-col">${esc(r.label.trim())}</td>
-      ${cols.map((i) => `<td class="${cf.weeks[i].actual ? 'actual' : ''}">${k2(r.values[i])}</td>`).join('')}
+      <td class="sticky-col indent-${r.indent || 0}"><span class="lbl" title="${esc(r.label.trim())}">${esc(r.label.trim())}</span></td>
+      ${cols.map((i) => `<td class="num ${cf.weeks[i].actual ? 'actual' : ''}">${k2(r.values[i])}</td>`).join('')}
     </tr>`;
   }).join('');
   const table = cols.length
@@ -579,22 +640,24 @@ function cashflow(s) {
     <tbody>${body}</tbody>
   </table></div>`
     : `<div class="notice">Không có tuần nào khớp bộ lọc. Hãy chọn lại khoảng tuần.</div>`;
-  return `<div class="toolbar">
-    <span>Liên kết số dư đầu kỳ 11.1–12.4:</span>
-    <label class="radio"><input type="radio" name="cfmode" value="chain" data-change="cfmode" ${mode === 'chain' ? 'checked' : ''}> Chuỗi đúng (cuối tuần trước)</label>
-    <label class="radio"><input type="radio" name="cfmode" value="source" data-change="cfmode" ${mode === 'source' ? 'checked' : ''}> Như file gốc (V8:AC8)</label>
-  </div>
-  <div class="toolbar filters">
+  return `<div class="toolbar cf-bar">
+    <span class="tb-title">Số dư đầu kỳ</span>
+    <label class="radio" title="Số dư đầu mỗi tuần = số dư cuối tuần trước"><input type="radio" name="cfmode" value="chain" data-change="cfmode" ${mode === 'chain' ? 'checked' : ''}> Chuỗi đúng</label>
+    <label class="radio" title="Như file gốc (V8:AC8)"><input type="radio" name="cfmode" value="source" data-change="cfmode" ${mode === 'source' ? 'checked' : ''}> Như file gốc</label>
+    <span class="tb-sep"></span>
     <label>Tháng <select data-change="cf-filter" data-field="month">${monthOptions}</select></label>
-    <label>Từ tuần <select data-change="cf-filter" data-field="from"><option value="">Đầu</option>${weekOptions}</select></label>
-    <label>Đến tuần <select data-change="cf-filter" data-field="to"><option value="">Cuối</option>${toOptions}</select></label>
+    <label>Từ <select data-change="cf-filter" data-field="from"><option value="">Đầu</option>${weekOptions}</select></label>
+    <label>Đến <select data-change="cf-filter" data-field="to"><option value="">Cuối</option>${toOptions}</select></label>
     <label>Loại <select data-change="cf-filter" data-field="kind">${kindOptions}</select></label>
-    <label class="radio"><input type="checkbox" data-change="cf-filter" data-field="summary" ${f.summary ? 'checked' : ''}> Chỉ dòng tổng hợp</label>
-    <label class="radio"><input type="checkbox" data-change="cf-filter" data-field="hideZero" ${f.hideZero ? 'checked' : ''}> Ẩn dòng bằng 0</label>
+    <span class="tb-sep"></span>
+    <label class="radio"><input type="checkbox" data-change="cf-filter" data-field="summary" ${f.summary ? 'checked' : ''}> Chỉ tổng hợp</label>
+    <label class="radio"><input type="checkbox" data-change="cf-filter" data-field="hideZero" ${f.hideZero ? 'checked' : ''}> Ẩn số 0</label>
+    <span class="tb-sep"></span>
+    <button type="button" data-action="cf-collapse-all" title="Thu gọn tất cả các nhóm">Thu gọn</button>
+    <button type="button" data-action="cf-expand-all" title="Mở tất cả các nhóm">Mở rộng</button>
     <button type="button" data-action="cf-reset">Đặt lại</button>
-    <span class="muted">Hiển thị ${cols.length}/${cf.weeks.length} tuần · ${lineCount} dòng</span>
+    <span class="muted tb-count">Hiển thị ${cols.length}/${cf.weeks.length} tuần · ${lineCount} dòng</span>
   </div>
-  <div class="status-line">Đơn vị USD'000K. Tuần thực tế (TT) lấy số đã nhập; tuần dự báo (DB) tính từ danh sách thanh toán và thu.</div>
   ${table}`;
 }
 

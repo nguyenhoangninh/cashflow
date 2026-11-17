@@ -97,7 +97,32 @@ async function onClick(e) {
         break;
 
       case 'cf-reset':
-        state.cf = { ...CF_FILTER_DEFAULT };
+        // resets the filters only; folded groups stay as they are
+        state.cf = { ...CF_FILTER_DEFAULT, collapsed: state.cf.collapsed };
+        paint();
+        break;
+
+      case 'cf-toggle': {
+        const key = el.dataset.key;
+        const collapsed = { ...state.cf.collapsed };
+        if (collapsed[key]) delete collapsed[key]; else collapsed[key] = true;
+        state.cf = { ...state.cf, collapsed };
+        paint();
+        break;
+      }
+
+      case 'cf-collapse-all':
+        state.cf = {
+          ...state.cf,
+          collapsed: Object.fromEntries(state.calc.cashflow.rows
+            .filter((r) => r.type === 'header' || r.type === 'opex_sub')
+            .map((r) => [r.row, true])),
+        };
+        paint();
+        break;
+
+      case 'cf-expand-all':
+        state.cf = { ...state.cf, collapsed: {} };
         paint();
         break;
 

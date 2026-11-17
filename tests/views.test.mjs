@@ -160,7 +160,7 @@ test('cashflow screen shows the filter bar and the filtered table', () => {
   assert.match(html, /data-action="cf-reset"/);
   assert.match(html, /Hiển thị 3\/\d+ tuần/);
   assert.ok(balanced(html, 'table'));
-  assert.ok(!html.includes('class="section"'));
+  assert.ok(!html.includes('data-action="cf-toggle"'));
   const none = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, from: '5', to: '1' } });
   assert.match(none, /Không có tuần nào khớp bộ lọc/);
 });
@@ -176,4 +176,35 @@ test('cashflow month filter keeps only the weeks of that month', () => {
   assert.match(html, /Tháng 10 \(DB\)/);
   assert.match(html, /<option value="10\.1"|>10\.1 \(DB\)/);
   assert.ok(!/>6\.1 \(TT\)/.test(html.split('data-field="from"')[1].split('</select>')[0]));
+});
+
+test('cashflow groups fold their items and show the subtotal on the header', () => {
+  const cf = chain.cashflow;
+  const hdr = cf.rows.find((r) => r.type === 'header' && r.label.includes('RECEIPT'));
+  const total = cf.rows.find((r) => r.type === 'sum_receipt');
+  const open = filterCashflow(cf, CF_FILTER_DEFAULT);
+  assert.ok(open.rows.some((r) => r.type === 'receipt'));
+  const folded = filterCashflow(cf, { ...CF_FILTER_DEFAULT, collapsed: { [hdr.row]: true } });
+  // items and the TOTAL row of that group are gone; the header now carries the TOTAL numbers
+  assert.ok(!folded.rows.some((r) => r.type === 'receipt'));
+  assert.ok(!folded.rows.some((r) => r.type === 'sum_receipt'));
+  const h = folded.rows.find((r) => r.type === 'header' && r.row === hdr.row);
+  assert.equal(h.collapsed, true);
+  assert.deepEqual(h.values.slice(0, 3), total.values.slice(0, 3));
+  // other groups stay open
+  assert.ok(folded.rows.some((r) => r.type === 'payable'));
+  // the net / ending lines are never hidden by folding
+  assert.ok(folded.rows.some((r) => r.type === 'ending'));
+});
+
+test('folding the Others sub-group hides only its own items', () => {
+  const cf = chain.cashflow;
+  const sub = cf.rows.find((r) => r.type === 'opex_sub');
+  const folded = filterCashflow(cf, { ...CF_FILTER_DEFAULT, collapsed: { [sub.row]: true } });
+  const shown = folded.rows.find((r) => r.row === sub.row);
+  assert.equal(shown.collapsed, true);
+  const opexLeaves = folded.rows.filter((r) => r.type === 'opex').length;
+  const all = filterCashflow(cf, CF_FILTER_DEFAULT).rows.filter((r) => r.type === 'opex').length;
+  assert.ok(opexLeaves < all);
+  assert.ok(folded.rows.some((r) => r.type === 'sum_opex'));
 });
