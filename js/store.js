@@ -40,6 +40,9 @@ export function emptyDataset() {
     recon: {},
     opex: [],
     categories: [],
+    cashflowActuals: {},
+    cashflowOpening: null,
+    cashflowOpeningStored: {},
     importedAt: null,
   };
 }
@@ -59,6 +62,9 @@ export function withDefaults(ds) {
     bankAdj: ds?.bankAdj || [],
     opex: ds?.opex || [],
     recon: ds?.recon || {},
+    cashflowActuals: ds?.cashflowActuals || {},
+    cashflowOpening: ds?.cashflowOpening ?? null,
+    cashflowOpeningStored: ds?.cashflowOpeningStored || {},
   };
 }
 
@@ -140,7 +146,9 @@ export async function createCloudStore(cfg) {
   const listeners = new Set();
   const unsubs = [];
   let memberUnsub = null;
-  const status = { mode: 'cloud', role: null, state: 'signed-out', message: 'Chưa đăng nhập' };
+  const status = { mode: 'cloud', role: null, sync: 'connecting', state: 'signed-out', message: 'Chưa đăng nhập' };
+  const snapshotMeta = {};
+
   const emit = () => listeners.forEach((fn) => fn(ds, status));
 
   const assemble = () => {
@@ -151,6 +159,9 @@ export async function createCloudStore(cfg) {
       fxDefaults: cfgDoc.fxDefaults,
       categories: cfgDoc.categories || [],
       importedAt: cfgDoc.importedAt || null,
+      cashflowActuals: cfgDoc.cashflowActuals || {},
+      cashflowOpening: cfgDoc.cashflowOpening ?? null,
+      cashflowOpeningStored: cfgDoc.cashflowOpeningStored || {},
       accounts: list('accounts'),
       payments: list('payments'),
       receipts: list('receipts'),
@@ -163,10 +174,20 @@ export async function createCloudStore(cfg) {
 
   const markLoaded = () => {
     const keys = ['config', ...ALL_COLLECTIONS];
-    if (keys.every((k) => parts[k] !== null)) {
+    if (!keys.every(key => parts[key] !== null)) { emit(); return; }
+    const snapshots = keys.map(key => snapshotMeta[key]);
+    status.sync = snapshots.some(m => m?.hasPendingWrites) ? 'pending'
+      : snapshots.every(m => m && !m.fromCache) ? 'server' : 'cache';
+    if (parts.config?.dataStatus === 'importing') {
+      ds = null;
+      status.state = 'migrating';
+      status.message = 'Đang nhập dữ liệu Firestore. Không đóng tab đang nhập.';
+    } else {
       ds = assemble();
-      status.state = ds.payments.length ? 'ready' : 'empty';
-      status.message = 'Đã đồng bộ với đám mây';
+      status.state = ds.importedAt ? 'ready' : 'empty';
+      status.message = status.sync === 'server' ? 'Đã đồng bộ từ Firestore'
+        : status.sync === 'pending' ? 'Đang xác nhận thay đổi với Firestore…'
+        : 'Chưa xác nhận được dữ liệu từ máy chủ. Kiểm tra kết nối Internet.';
     }
     emit();
   };
@@ -175,6 +196,8 @@ export async function createCloudStore(cfg) {
     unsubs.splice(0).forEach((unsubscribe) => unsubscribe());
     ds = null;
     Object.keys(parts).forEach((key) => { parts[key] = null; });
+    Object.keys(snapshotMeta).forEach(key => { delete snapshotMeta[key]; });
+    status.sync = 'connecting';
   };
 
   const fail = (err) => {
@@ -189,6 +212,9 @@ export async function createCloudStore(cfg) {
   const requireRole = (roles) => {
     if (!auth.currentUser || !roles.includes(status.role)) {
       throw new Error('Bạn không có quyền thực hiện thao tác này.');
+    }
+    if (status.sync !== 'server') {
+      throw new Error('Firestore chưa xác nhận kết nối máy chủ. Chờ đồng bộ trước khi ghi.');
     }
   };
 
@@ -206,8 +232,13 @@ export async function createCloudStore(cfg) {
   async function batchWrite(ops) {
     for (let i = 0; i < ops.length; i += 10) {
       const batch = fsMod.writeBatch(db);
-      ops.slice(i, i + 10).forEach((op) => op(batch));
+      ops.slice(i, i + 10).forEach(op => op(batch));
       await batch.commit();
+      if (i % 100 === 0 || i + 10 >= ops.length) {
+        status.message = 'Đang nhập Firestore: ' + Math.min(i + 10, ops.length)
+          + ' / ' + ops.length + ' thao tác.';
+        emit();
+      }
     }
   }
 
@@ -256,17 +287,21 @@ export async function createCloudStore(cfg) {
         status.state = 'loading';
         status.message = 'Đang tải dữ liệu…';
         emit();
-        unsubs.push(fsMod.onSnapshot(fsMod.doc(db, 'config', 'main'), (data) => {
-          parts.config = data.exists() ? data.data() : {};
-          markLoaded();
-        }, fail));
-        for (const name of ALL_COLLECTIONS) {
-          unsubs.push(fsMod.onSnapshot(fsMod.collection(db, name), (data) => {
-            parts[name] = name === 'recon'
-              ? Object.fromEntries(data.docs.map((d) => [d.id, d.data()]))
-              : listDocs(data);
+        unsubs.push(fsMod.onSnapshot(fsMod.doc(db, 'config', 'main'),
+          { includeMetadataChanges: true }, (data) => {
+            parts.config = data.exists() ? data.data() : {};
+            snapshotMeta.config = data.metadata;
             markLoaded();
           }, fail));
+        for (const name of ALL_COLLECTIONS) {
+          unsubs.push(fsMod.onSnapshot(fsMod.collection(db, name),
+            { includeMetadataChanges: true }, (data) => {
+              parts[name] = name === 'recon'
+                ? Object.fromEntries(data.docs.map(d => [d.id, d.data()]))
+                : listDocs(data);
+              snapshotMeta[name] = data.metadata;
+              markLoaded();
+            }, fail));
         }
       }, fail);
     },
