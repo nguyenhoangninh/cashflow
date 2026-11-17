@@ -72,6 +72,11 @@ import { CASHFLOW_ACTUALS, CASHFLOW_OPENING, CASHFLOW_OPENING_STORED } from './s
       + "Ngày nhập dữ liệu gần nhất: " + (data.importedAt || "(không xác định)") + "\n"
       + "Lịch sử Cashflow: " + Object.keys(data.cashflowActuals || {}).length + " dòng (kèm số dư đầu kỳ).\\n"
       + "Dữ liệu chưa được gửi đi.";
+    if (!Object.keys(data.cashflowActuals || {}).length || data.cashflowOpening == null) {
+      message.textContent += "\\nCẢNH BÁO: Không còn dữ liệu lịch sử trong mã nguồn hiện tại. Hãy sử dụng bản JSON đã sao lưu đầy đủ trước khi nâng cấp hoặc file Excel gốc có Cashflow_Summary.";
+      button.disabled = true;
+      return;
+    }
     button.disabled = false;
   } catch (_) {
     message.textContent = "Không thể đọc dữ liệu từ localStorage. Có thể trình duyệt đang chặn lưu trữ hoặc dữ liệu không hợp lệ.";
