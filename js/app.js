@@ -3,7 +3,7 @@ import { runAll, todayKey } from '../src/engine.js';
 import { buildQuality } from '../src/quality.js';
 import { importWorkbook } from '../src/importer.js';
 import { buildAiPackage } from '../src/ai-export.js';
-import { createLocalStore, createCloudStore } from './store.js';
+import { createLocalStore, createCloudStore, withDefaults } from './store.js';
 import { render, CF_FILTER_DEFAULT } from './views.js';
 import { toNum, toText, toDate } from './format.js';
 import { firebaseConfig } from '../firebase-config.js';
@@ -218,7 +218,30 @@ async function onClick(e) {
         await store.auth.signOut();
         break;
 
+      case 'backup-dataset': {
+        if (!state.ds) throw new Error('Chưa có dữ liệu để sao lưu.');
+        if (!window.confirm('Sao lưu toàn bộ dữ liệu Cashflow vào máy? File JSON có thể chứa tên đối tác, số tài khoản, và thông tin nội bộ. Hãy lưu file an toàn, không đưa lên GitHub hoặc chia sẻ công khai.')) break;
+        const payload = { ...state.ds, _backupFormat: 'svl.cashflow.backup.v1',
+          _exportedAt: new Date().toISOString() };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json;charset=utf-8'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'SVL_Cashflow_PRIVATE_Backup_' + new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+        setMessage('Đã xuất bản sao dữ liệu. File vẫn chỉ nằm trên thiết bị của bạn.', 'ok');
+        paint();
+        break;
+      }
+
       case 'import-confirm': {
+        if (state.status?.mode === 'cloud' && state.status?.role !== 'admin')
+          throw new Error('Chỉ Admin được thay thế dữ liệu chung.');
+        if (!state.importPreview) throw new Error('Chưa chọn dữ liệu để nhập.');
+        if (state.status?.mode === 'cloud' && !window.confirm('CẢNH BÁO: Thao tác này sẽ thay thế dữ liệu của toàn bộ người dùng Firebase. Hãy bảo đảm đã có bản sao lưu an toàn. Bạn vẫn muốn tiếp tục?')) break;
         const prev = state.ds?.settings || {};
         const next = state.importPreview;
         next.settings = { ...next.settings, cfSourceLinks: !!prev.cfSourceLinks, todayOverride: prev.todayOverride ?? null };
@@ -259,9 +282,24 @@ async function onChange(e) {
         if (!file) break;
         state.importStatus = `Đang đọc ${file.name}…`;
         paint();
-        const XLSX = window.XLSX;
-        if (!XLSX) throw new Error('Chưa tải thư viện đọc Excel (vendor/xlsx.full.min.js).');
-        const ds = importWorkbook(XLSX, await file.arrayBuffer());
+        let ds;
+        if (/\\.json$/i.test(file.name)) {
+          if (file.size > 25 * 1024 * 1024) throw new Error('File JSON vượt giới hạn 25 MB.');
+          const data = JSON.parse(await file.text());
+          if (!data || typeof data !== 'object' || !data.settings ||
+              typeof data.settings.openingDate !== 'string' ||
+              typeof data.settings.planEnd !== 'string' ||
+              !Array.isArray(data.payments) || !Array.isArray(data.receipts) ||
+              !Array.isArray(data.accounts) || !Array.isArray(data.fx) ||
+              !Array.isArray(data.bankAdj) || !Array.isArray(data.opex)) {
+            throw new Error('File JSON không đúng cấu trúc bản sao lưu SVL Cashflow.');
+          }
+          ds = withDefaults(data);
+        } else {
+          const XLSX = window.XLSX;
+          if (!XLSX) throw new Error('Chưa tải thư viện đọc Excel (vendor/xlsx.full.min.js).');
+          ds = importWorkbook(XLSX, await file.arrayBuffer());
+        }
         state.importPreview = ds;
         state.importStatus = `Đã đọc ${file.name}. Kiểm tra bên dưới rồi xác nhận.`;
         paint();
