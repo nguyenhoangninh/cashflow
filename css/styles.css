@@ -510,3 +510,12 @@ table.dense thead th.num, table.dense tbody td.num { text-align: right; font-var
 .cal-close.neg { color: var(--bad); }
 .cal-sum b.neg { color: var(--bad); }
 .cal-sum .cal-in, .cal-sum .cal-out { align-self: center; text-align: center; }
+
+/* ---- cashflow table: columns fit their content and the table does not stretch to the window ---- */
+table.cf { width: auto; }
+table.cf th, table.cf td { min-width: 96px; }
+table.cf thead th { padding: 6px 10px 5px; }
+table.cf td.num { padding-right: 10px; }
+.caret { width: 16px; font-size: 12px; }
+/* the table panel hugs its content when only a few weeks or months are shown; wide ranges scroll inside it */
+.screen.fill > .table-wrap { align-self: flex-start; width: fit-content; max-width: 100%; }

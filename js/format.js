@@ -5,17 +5,21 @@ const nf2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFr
 
 export const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
+// Negative numbers use the true minus sign (U+2212), the same one the summary tiles use.
+const MINUS = '\u2212';
+const withMinus = (text) => text.replace(/^-/, MINUS);
+
 // VND and other whole amounts: 1,234,567 (never prints "-0")
 export function fmtInt(v) {
   if (!isNum(v)) return '';
   const r = Math.round(v);
-  return nf0.format(r === 0 ? 0 : r);
+  return withMinus(nf0.format(r === 0 ? 0 : r));
 }
 
 // USD amounts and USD'000K values: 1,234.56
 export function fmt2(v) {
   if (!isNum(v)) return '';
-  return nf2.format(Math.abs(v) < 0.005 ? 0 : v);
+  return withMinus(nf2.format(Math.abs(v) < 0.005 ? 0 : v));
 }
 
 export function fmtAmt(v, currency) {
