@@ -171,7 +171,7 @@ function viewCloudWait(s) {
     <h2>Đang đồng bộ Firestore Realtime</h2>
     <p>${esc(s.status?.message || 'Đang chờ xác nhận từ máy chủ Firebase…')}</p>
     <p class="muted">Không chỉnh sửa dữ liệu khi kết nối chưa được xác nhận. Bản nhập chưa hoàn tất có thể được khôi phục từ JSON sao lưu riêng tư.</p>
-    ${s.status?.state === 'migrating' && !s.status?.migrationActive
+    ${['migrating', 'import-error'].includes(s.status?.state) && !s.status?.migrationActive
       && s.status?.sync === 'server' && s.status?.role === 'admin'
         ? '<button type="button" data-action="migration-retry">Khôi phục nhập dữ liệu từ bản sao lưu</button>' : ''}
   </div>`;
