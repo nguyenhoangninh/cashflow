@@ -302,14 +302,13 @@ td:has(> .num), th:has(> .num) { text-align: right; }
 .cf-bar .tb-title { font-weight: 600; color: var(--ink-2); font-size: 12.5px; }
 .cf-bar .tb-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 2px; }
 .cf-bar .tb-count { font-size: 12px; margin-left: auto; }
-.cf-bar select { height: 28px; font-size: 12.5px; max-width: 130px; }
+.cf-bar select { height: 28px; font-size: 12.5px; min-width: 96px; max-width: 150px; }
 .cf-bar button { height: 28px; font-size: 12.5px; }
 tr.strong td { font-weight: 700; background: var(--total-bg); color: var(--total-ink); border-top: 1px solid var(--line-2); }
 tr.strong:hover td { background: var(--total-bg) !important; }
 td.actual { background: var(--actual) !important; }
 tr.strong td.actual { background: var(--total-bg) !important; }
-/* header of an actual week (TT): same dark band, a little greener so it reads apart from forecast (DB) weeks */
-table.dense thead th.actual { background: #2e5c4f !important; }
+
 .neg { color: var(--bad); }
 table.cf th, table.cf td { min-width: 74px; }
 table.cf thead th { text-align: right; }
@@ -371,3 +370,31 @@ table.dense tbody tr.group:hover td.sticky-col { background: var(--hover); }
 /* cashflow labels: one line, cut with an ellipsis; the full name is in the tooltip */
 td.sticky-col .lbl { display: block; max-width: 262px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 td.sticky-col .caret + .lbl { display: inline-block; max-width: 240px; vertical-align: middle; }
+
+/* ---------- full-height screen (cashflow): the table scrolls inside the window, headers stay put ---------- */
+.shell.fill { height: 100vh; grid-template-rows: var(--top-h) minmax(0, 1fr); }
+.shell.fill .sidebar { height: auto; min-height: 0; overflow-y: auto; }
+.main.fill { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.screen.fill { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding-bottom: 12px; }
+.screen.fill > .table-wrap { flex: 1 1 auto; min-height: 0; max-height: none; }
+.screen.fill > .notice { flex: none; }
+@media (max-width: 960px) {
+  .shell.fill { height: auto; grid-template-rows: var(--top-h) auto auto; }
+  .main.fill { overflow: visible; display: block; }
+  .screen.fill { display: block; }
+  .screen.fill > .table-wrap { max-height: calc(100vh - 220px); }
+}
+@media print {
+  .shell.fill, .main.fill, .screen.fill { height: auto !important; overflow: visible !important; display: block !important; }
+}
+
+/* cashflow week headers: code and status tag on one line, the period dates under it */
+table.cf thead th { padding: 6px 8px 5px; min-width: 84px; }
+table.cf thead th .wk { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12.5px; font-weight: 600; }
+table.cf thead th .dates { font-size: 10.5px; font-weight: 400; opacity: 0.7; text-align: right; margin-top: 1px; }
+.tag { display: inline-block; font-size: 9.5px; font-weight: 700; letter-spacing: 0.4px; line-height: 1.25; padding: 1px 4px; border-radius: 3px; }
+.tag.tt { background: #3f8f6e; color: #ffffff; }
+.tag.db { background: #b7791f; color: #ffffff; }
+/* the first forecast week gets a divider, so the actual / forecast boundary is visible */
+table.dense thead th.fc { box-shadow: inset 2px 0 0 #7fb8a4; }
+table.dense tbody td.fc { box-shadow: inset 2px 0 0 var(--accent); }

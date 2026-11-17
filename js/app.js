@@ -46,7 +46,7 @@ function paint() {
 const TITLES = {
   overview: 'Tổng quan', plan: 'Kế hoạch ngày', details: 'Chi tiết ngày', payments: 'Thanh toán',
   receipts: 'Thu', fx: 'Giao dịch FX', bank: 'Điều chỉnh NH', recon: 'Đối chiếu', accounts: 'Số dư đầu',
-  weekly: 'Kế hoạch tuần', cashflow: 'Dòng tiền', opex: 'Opex', quality: 'Kiểm tra dữ liệu', import: 'Nhập file',
+  weekly: 'Kế hoạch tuần', cashflow: 'Dòng tiền', opex: 'Opex', quality: 'Kiểm tra dữ liệu', import: 'Nhập file', settings: 'Cài đặt',
 };
 
 function setMessage(text, kind = '') {
@@ -253,10 +253,7 @@ async function onChange(e) {
       case 'cf-filter': {
         const field = el.dataset.field;
         const value = el.type === 'checkbox' ? el.checked : el.value;
-        // Changing the month clears the week range, because the range only lists that month's weeks.
-        state.cf = field === 'month'
-          ? { ...state.cf, month: value, from: '', to: '' }
-          : { ...state.cf, [field]: value };
+        state.cf = { ...state.cf, [field]: value };
         paint();
         break;
       }

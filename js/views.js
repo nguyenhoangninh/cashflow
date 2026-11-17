@@ -19,13 +19,14 @@ export const TABS = [
   ['opex', 'Opex'],
   ['quality', 'Kiểm tra dữ liệu'],
   ['import', 'Nhập file'],
+  ['settings', 'Cài đặt'],
 ];
 
 // Navigation groups shown in the sidebar (same ids as TABS).
 export const GROUPS = [
   ['Dự báo', ['overview', 'plan', 'details', 'weekly', 'cashflow']],
   ['Dữ liệu', ['payments', 'receipts', 'fx', 'bank', 'recon', 'accounts', 'opex']],
-  ['Hệ thống', ['quality', 'import']],
+  ['Hệ thống', ['quality', 'import', 'settings']],
 ];
 
 const TAB_LABEL = Object.fromEntries(TABS);
@@ -42,6 +43,7 @@ const PAGE_INFO = {
   weekly: ['Kế hoạch tuần', 'Thu, chi và số dư cuối theo từng tuần.'],
   cashflow: ['Dòng tiền', "Dòng tiền theo tuần, USD'000K. TT: tuần thực tế, DB: tuần dự báo. Bấm tên nhóm để thu gọn hoặc mở ra."],
   opex: ['Opex', "Chi phí hoạt động theo tháng, đơn vị USD'000K."],
+  settings: ['Cài đặt', 'Ngày bắt đầu, ngày kết thúc và các ngưỡng cảnh báo dùng cho kế hoạch và dòng tiền.'],
   quality: ['Kiểm tra dữ liệu', 'Các khác biệt giữa file gốc và ứng dụng, cùng các dòng dữ liệu nguồn cần xem.'],
   import: ['Nhập file', 'Tải dữ liệu từ file Excel để thay thế dữ liệu hiện tại.'],
 };
@@ -86,6 +88,7 @@ export function render(view, s) {
       opex: opex,
       quality: quality,
       import: viewImport,
+      settings: settings,
     }[view] || overview)(s);
   return shell(view, s, body);
 }
@@ -105,7 +108,9 @@ function shell(view, s, body) {
   const msg = s.message ? `<div class="notice ${esc(s.messageKind || '')}">${esc(s.message)}</div>` : '';
   const err = st.state === 'error' ? `<div class="notice bad">${esc(st.message)}</div>` : '';
   const [title, desc] = PAGE_INFO[view] || PAGE_INFO.overview;
-  return `<div class="shell">
+  // The cashflow table fills the window and scrolls inside itself, so its header stays in view.
+  const fill = view === 'cashflow' ? ' fill' : '';
+  return `<div class="shell${fill}">
     <header class="top">
       <div class="brand"><div class="brand-mark">S</div><div><div class="brand-name">SVL Dự báo dòng tiền</div><div class="brand-sub">Starry Vietnam · Cashflow</div></div></div>
       <div class="grow"></div>
@@ -114,10 +119,10 @@ function shell(view, s, body) {
     <aside class="sidebar">
       <nav class="nav" aria-label="Điều hướng">${nav}</nav>
     </aside>
-    <div class="main">
+    <div class="main${fill}">
       <div class="page-title"><h1>${esc(title)}</h1><p>${esc(desc)}</p></div>
       <div class="flash">${msg}${err}</div>
-      <section class="screen">${body}</section>
+      <section class="screen${fill}">${body}</section>
     </div>
   </div>`;
 }
@@ -163,6 +168,29 @@ function viewImport(s) {
 }
 
 // ---------- Overview ----------
+// System settings: planning dates and thresholds (saved with data-form="settings" in app.js).
+function settings(s) {
+  const st = s.ds.settings;
+  return `<div class="card">
+    <p class="muted">Để trống ngày bắt đầu, chi tiết và dự báo để dùng giá trị tự động như file gốc.</p>
+    <h2>Ngày và ngưỡng</h2>
+    <form data-form="settings" class="grid-form">
+      ${dateField('openingDate', 'Ngày số dư đầu (Overview F13)', st.openingDate)}
+      ${dateField('planStart', 'Ngày bắt đầu kế hoạch (C12)', st.planStart)}
+      ${dateField('dailyDetailsStart', 'Chi tiết từ ngày (F15)', st.dailyDetailsStart)}
+      ${dateField('forecastStart', 'Dự báo từ ngày (F17)', st.forecastStart)}
+      ${dateField('planEnd', 'Kết thúc kế hoạch (C13)', st.planEnd)}
+      ${dateField('todayOverride', 'Ngày tính (để trống = hôm nay)', st.todayOverride)}
+      ${numField('minVnd', 'Số dư tối thiểu VND (C9)', st.minVnd)}
+      ${numField('minUsd', 'Số dư tối thiểu USD (C10)', st.minUsd)}
+      ${numField('tolVnd', 'Dung sai đối chiếu VND', st.tolVnd)}
+      ${numField('tolUsd', 'Dung sai đối chiếu USD', st.tolUsd)}
+      ${numField('cfRate', 'Tỷ giá quy USD trong Cashflow (Opex!B2)', st.cfRate)}
+      <div class="form-actions"><button class="primary" type="submit">Lưu cài đặt</button></div>
+    </form>
+  </div>`;
+}
+
 function overview(s) {
   const { calc } = s;
   const c = calc.ctx;
@@ -210,24 +238,7 @@ function overview(s) {
     ${card('Thu dự kiến VND', `<span class="num">${fmtInt(rcSum('VND'))}</span>`, 'từ sheet Receipts')}
     ${card('Thu dự kiến USD', `<span class="num">${fmt2(rcSum('USD'))}</span>`, 'từ sheet Receipts')}
   </div>
-  <div class="card">
-    <h3>Cài đặt ngày và ngưỡng</h3>
-    <p class="muted">Để trống ngày bắt đầu/chi tiết/dự báo để dùng giá trị tự động như file gốc.</p>
-    <form data-form="settings" class="grid-form">
-      ${dateField('openingDate', 'Ngày số dư đầu (Overview F13)', s.ds.settings.openingDate)}
-      ${dateField('planStart', 'Ngày bắt đầu kế hoạch (C12)', s.ds.settings.planStart)}
-      ${dateField('dailyDetailsStart', 'Chi tiết từ ngày (F15)', s.ds.settings.dailyDetailsStart)}
-      ${dateField('forecastStart', 'Dự báo từ ngày (F17)', s.ds.settings.forecastStart)}
-      ${dateField('planEnd', 'Kết thúc kế hoạch (C13)', s.ds.settings.planEnd)}
-      ${dateField('todayOverride', 'Ngày tính (để trống = hôm nay)', s.ds.settings.todayOverride)}
-      ${numField('minVnd', 'Số dư tối thiểu VND (C9)', s.ds.settings.minVnd)}
-      ${numField('minUsd', 'Số dư tối thiểu USD (C10)', s.ds.settings.minUsd)}
-      ${numField('tolVnd', 'Dung sai đối chiếu VND', s.ds.settings.tolVnd)}
-      ${numField('tolUsd', 'Dung sai đối chiếu USD', s.ds.settings.tolUsd)}
-      ${numField('cfRate', 'Tỷ giá quy USD trong Cashflow (Opex!B2)', s.ds.settings.cfRate)}
-      <div class="form-actions"><button class="primary" type="submit">Lưu cài đặt</button></div>
-    </form>
-  </div>`;
+`;
 }
 
 const dateField = (name, label, value) =>
@@ -512,15 +523,19 @@ function weekly(s) {
 
 // ---------- Cashflow (USD'000K) ----------
 // Default filters of the cashflow screen (also used by the reset button in app.js).
-// collapsed: group keys (Excel row numbers) that are folded; it is kept when the filters are reset.
-export const CF_FILTER_DEFAULT = { month: '', from: '', to: '', kind: 'all', summary: false, hideZero: false, collapsed: {} };
+// mFrom / mTo: first and last month shown ('' = all). collapsed: group keys (Excel row numbers) that are folded;
+// it is kept when the filters are reset.
+export const CF_FILTER_DEFAULT = { mFrom: '', mTo: '', kind: 'all', summary: false, hideZero: false, collapsed: {} };
 const CF_SUMMARY = ['sum_receipt', 'sum_opex', 'sum_capex', 'net', 'ending', 'opening'];
 const CF_LEAF = ['receipt', 'payable', 'opex', 'capex', 'debt', 'buffer'];
 const CF_TOTAL = ['sum_receipt', 'sum_opex', 'sum_capex'];
 // Rows that close a header group: the next header, a TOTAL row, or the net / ending / opening lines.
 const CF_ENDS_GROUP = ['header', ...CF_TOTAL, 'net', 'ending', 'opening'];
-// Week codes look like "6.1" (month 6, week 1), so the month is the part before the dot.
-const monthOf = (code) => String(code).split('.')[0];
+// Week codes look like "6.1" (month 6, week 1), so the month is the number before the dot.
+const monthNum = (code) => Number(String(code).split('.')[0]);
+// ISO date "2026-07-01" -> "01/07/2026" and "01/07" (day/month only).
+const dmy = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+const dm = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
 // Values shown on a collapsed header: its TOTAL row when the group has one, otherwise the sum of its items.
 function groupTotal(src, start, nWeeks) {
@@ -537,12 +552,12 @@ function groupTotal(src, start, nWeeks) {
 // Keeps the week columns and rows that match the filters and folds the collapsed groups.
 // Header rows come back with values (their subtotal) when collapsed, and opex_sub rows carry a `collapsed` flag.
 export function filterCashflow(cf, f) {
-  const month = f.month ? String(f.month) : '';
-  const from = f.from === '' || f.from == null ? 0 : Number(f.from);
-  const to = f.to === '' || f.to == null ? cf.weeks.length - 1 : Number(f.to);
-  const cols = cf.weeks.map((_, i) => i).filter((i) => i >= from && i <= to
-    && (!month || monthOf(cf.weeks[i].code) === month)
-    && (f.kind === 'all' || (f.kind === 'actual') === cf.weeks[i].actual));
+  const mFrom = f.mFrom === '' || f.mFrom == null ? 0 : Number(f.mFrom);
+  const mTo = f.mTo === '' || f.mTo == null ? 99 : Number(f.mTo);
+  const cols = cf.weeks.map((_, i) => i).filter((i) => {
+    const m = monthNum(cf.weeks[i].code);
+    return m >= mFrom && m <= mTo && (f.kind === 'all' || (f.kind === 'actual') === cf.weeks[i].actual);
+  });
   const collapsed = f.collapsed || {};
   const isZero = (r) => r.values.every((v) => Math.abs(Number(v) || 0) < 0.005);
   const src = cf.rows;
@@ -566,14 +581,9 @@ export function filterCashflow(cf, f) {
     }
     if (CF_ENDS_GROUP.includes(r.type)) {
       // TOTAL rows close their group and are hidden while it is folded (the header shows the same numbers)
-      if (CF_TOTAL.includes(r.type)) {
-        const hidden = group && group.collapsed;
-        group = null; sub = null; pendingHeader = null;
-        if (!hidden && !(f.hideZero && isZero(r))) emit({ ...r, indent: 0 });
-        continue;
-      }
+      const hidden = CF_TOTAL.includes(r.type) && group && group.collapsed;
       group = null; sub = null; pendingHeader = null;
-      if (!(f.hideZero && isZero(r))) emit({ ...r, indent: 0 });
+      if (!hidden && !(f.hideZero && isZero(r))) emit({ ...r, indent: 0 });
       continue;
     }
     if (r.type === 'opex_sub') {
@@ -595,43 +605,50 @@ function cashflow(s) {
   const mode = s.ds.settings.cfSourceLinks ? 'source' : 'chain';
   const f = { ...CF_FILTER_DEFAULT, ...(s.cf || {}) };
   const { cols, rows } = filterCashflow(cf, f);
-  // With a month chosen, the week range only lists the weeks of that month.
-  const month = f.month ? String(f.month) : '';
-  const weekIdx = cf.weeks.map((_, i) => i).filter((i) => !month || monthOf(cf.weeks[i].code) === month);
-  const weekLabel = (i) => `${esc(cf.weeks[i].code)} (${cf.weeks[i].actual ? 'TT' : 'DB'})`;
-  const weekOptions = weekIdx.map((i) => `<option value="${i}" ${String(f.from) === String(i) ? 'selected' : ''}>${weekLabel(i)}</option>`).join('');
-  const toOptions = weekIdx.map((i) => `<option value="${i}" ${String(f.to) === String(i) ? 'selected' : ''}>${weekLabel(i)}</option>`).join('');
-  const monthCodes = [...new Set(cf.weeks.map((w) => monthOf(w.code)))];
-  const monthOptions = [['', 'Tất cả'], ...monthCodes.map((m) => {
-    const first = cf.weeks.find((w) => monthOf(w.code) === m);
-    return [m, `Tháng ${Number(m)} (${first.actual ? 'TT' : 'DB'})`];
-  })].map(([v, t]) => `<option value="${esc(v)}" ${month === v ? 'selected' : ''}>${t}</option>`).join('');
+  const months = [...new Set(cf.weeks.map((w) => monthNum(w.code)))];
+  const monthTag = (m) => {
+    const first = cf.weeks.find((w) => monthNum(w.code) === m);
+    return `Tháng ${m} (${first.actual ? 'TT' : 'DB'})`;
+  };
+  const monthOptions = (sel, allLabel) => [['', allLabel], ...months.map((m) => [String(m), monthTag(m)])]
+    .map(([v, t]) => `<option value="${v}" ${String(sel ?? '') === v ? 'selected' : ''}>${esc(t)}</option>`).join('');
   const kindOptions = [['all', 'Tất cả'], ['actual', 'Chỉ TT'], ['forecast', 'Chỉ DB']]
     .map(([v, t]) => `<option value="${v}" ${f.kind === v ? 'selected' : ''}>${t}</option>`).join('');
   const lineCount = rows.filter((r) => r.type !== 'header').length;
-  const head = cols.map((i) => {
+  // A week that starts the forecast (DB) part gets a divider, so the TT/DB boundary is visible in the header and body.
+  const isBoundary = (k) => k > 0 && !cf.weeks[cols[k]].actual && cf.weeks[cols[k - 1]].actual;
+  const head = cols.map((i, k) => {
     const w = cf.weeks[i];
-    return `<th class="num ${w.actual ? 'actual' : ''}">${esc(w.code)}<div class="sub">${w.actual ? 'TT' : 'DB'}</div></th>`;
+    return `<th class="num${isBoundary(k) ? ' fc' : ''}">
+      <div class="wk">${esc(w.code)}<span class="tag ${w.actual ? 'tt' : 'db'}">${w.actual ? 'TT' : 'DB'}</span></div>
+      <div class="dates">${dm(w.from)} – ${dm(w.to)}</div></th>`;
   }).join('');
+  const labelOf = (r) => {
+    if (r.type === 'opening' && cols.length) return `Số dư đầu kỳ · ${dmy(cf.weeks[cols[0]].from)}`;
+    if (r.type === 'ending' && cols.length) return `Số dư cuối kỳ · ${dmy(cf.weeks[cols[cols.length - 1]].to)}`;
+    return r.label.trim();
+  };
+  const cells = (r, cellCls = '') => cols.map((i, k) => `<td class="num${isBoundary(k) ? ' fc' : ''}${cellCls}">${r.type === 'header' ? '' : k2(r.values[i])}</td>`).join('');
   const body = rows.map((r) => {
     if (r.type === 'header') {
       const c = !!r.collapsed;
       return `<tr class="group${c ? ' is-collapsed' : ''}" data-action="cf-toggle" data-key="${r.row}" title="Bấm để ${c ? 'mở' : 'thu gọn'}">
       <td class="sticky-col indent-0"><span class="caret">${c ? '▸' : '▾'}</span><span class="lbl" title="${esc(r.label.trim())}">${esc(r.label.trim())}</span></td>
-      ${cols.map((i) => `<td class="num ${cf.weeks[i].actual ? 'actual' : ''}">${c ? k2(r.values[i]) : ''}</td>`).join('')}
+      ${cols.map((i, k) => `<td class="num${isBoundary(k) ? ' fc' : ''}">${c ? k2(r.values[i]) : ''}</td>`).join('')}
     </tr>`;
     }
     if (r.type === 'opex_sub') {
       const c = !!r.collapsed;
       return `<tr class="group sub${c ? ' is-collapsed' : ''}" data-action="cf-toggle" data-key="${r.row}" title="Bấm để ${c ? 'mở' : 'thu gọn'}">
       <td class="sticky-col indent-1"><span class="caret">${c ? '▸' : '▾'}</span><span class="lbl" title="${esc(r.label.trim())}">${esc(r.label.trim())}</span></td>
-      ${cols.map((i) => `<td class="num ${cf.weeks[i].actual ? 'actual' : ''}">${k2(r.values[i])}</td>`).join('')}
+      ${cells(r)}
     </tr>`;
     }
     const strong = CF_SUMMARY.includes(r.type);
+    const label = labelOf(r);
     return `<tr class="${strong ? 'strong' : ''}">
-      <td class="sticky-col indent-${r.indent || 0}"><span class="lbl" title="${esc(r.label.trim())}">${esc(r.label.trim())}</span></td>
-      ${cols.map((i) => `<td class="num ${cf.weeks[i].actual ? 'actual' : ''}">${k2(r.values[i])}</td>`).join('')}
+      <td class="sticky-col indent-${r.indent || 0}"><span class="lbl" title="${esc(label)}">${esc(label)}</span></td>
+      ${cells(r)}
     </tr>`;
   }).join('');
   const table = cols.length
@@ -639,15 +656,14 @@ function cashflow(s) {
     <thead><tr><th class="sticky-col">Mục</th>${head}</tr></thead>
     <tbody>${body}</tbody>
   </table></div>`
-    : `<div class="notice">Không có tuần nào khớp bộ lọc. Hãy chọn lại khoảng tuần.</div>`;
+    : `<div class="notice">Không có tuần nào khớp bộ lọc. Hãy chọn lại khoảng tháng.</div>`;
   return `<div class="toolbar cf-bar">
     <span class="tb-title">Số dư đầu kỳ</span>
     <label class="radio" title="Số dư đầu mỗi tuần = số dư cuối tuần trước"><input type="radio" name="cfmode" value="chain" data-change="cfmode" ${mode === 'chain' ? 'checked' : ''}> Chuỗi đúng</label>
     <label class="radio" title="Như file gốc (V8:AC8)"><input type="radio" name="cfmode" value="source" data-change="cfmode" ${mode === 'source' ? 'checked' : ''}> Như file gốc</label>
     <span class="tb-sep"></span>
-    <label>Tháng <select data-change="cf-filter" data-field="month">${monthOptions}</select></label>
-    <label>Từ <select data-change="cf-filter" data-field="from"><option value="">Đầu</option>${weekOptions}</select></label>
-    <label>Đến <select data-change="cf-filter" data-field="to"><option value="">Cuối</option>${toOptions}</select></label>
+    <label>Từ tháng <select data-change="cf-filter" data-field="mFrom">${monthOptions(f.mFrom, 'Đầu')}</select></label>
+    <label>Đến tháng <select data-change="cf-filter" data-field="mTo">${monthOptions(f.mTo, 'Cuối')}</select></label>
     <label>Loại <select data-change="cf-filter" data-field="kind">${kindOptions}</select></label>
     <span class="tb-sep"></span>
     <label class="radio"><input type="checkbox" data-change="cf-filter" data-field="summary" ${f.summary ? 'checked' : ''}> Chỉ tổng hợp</label>
@@ -656,7 +672,7 @@ function cashflow(s) {
     <button type="button" data-action="cf-collapse-all" title="Thu gọn tất cả các nhóm">Thu gọn</button>
     <button type="button" data-action="cf-expand-all" title="Mở tất cả các nhóm">Mở rộng</button>
     <button type="button" data-action="cf-reset">Đặt lại</button>
-    <span class="muted tb-count">Hiển thị ${cols.length}/${cf.weeks.length} tuần · ${lineCount} dòng</span>
+    <span class="muted tb-count">${cols.length}/${cf.weeks.length} tuần · ${lineCount} dòng</span>
   </div>
   ${table}`;
 }
