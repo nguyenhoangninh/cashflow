@@ -502,3 +502,7 @@ export const CASHFLOW_ROWS = [
 // SECURITY: confidential historical cashflow figures have moved to
 // datasets stored in authenticated Cloud Firestore. Do NOT reintroduce
 // actual bank balances, transaction values, or workbook snapshots here.
+
+export const CASHFLOW_ACTUALS = {};
+export const CASHFLOW_OPENING = null;
+export const CASHFLOW_OPENING_STORED = {};
