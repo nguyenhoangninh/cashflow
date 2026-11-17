@@ -582,7 +582,7 @@ function quality(s) {
   <div class="card"><h3>Khác biệt có chủ ý so với file gốc</h3>
     <ul class="plain">
       <li><b>Liên kết số dư đầu kỳ V8:AC8.</b> File gốc lấy số dư đầu của tuần 11.1–12.4 từ cuối tuần cách 4 cột trước (V8 = R58…). App chuỗi đúng: mỗi tuần lấy cuối tuần trước. Nếu chọn “Như file gốc”, số dư cuối 11.1 cao hơn chuỗi đúng ${fmt2(L.endingDiffK[0])}; lệch lớn nhất ${fmt2(L.maxAbsK)} USD'000K.</li>
-      <li><b>Cột AK (USD’K) của dòng 1453 (tuần 10.1)</b> nhập tay 24,52 thay công thức; app dùng số tính từ tiền và tỷ giá.</li>
+      <li><b>Cột AK (USD’K) của dòng 1453 (tuần 10.1)</b> nhập tay 24.52 thay công thức; app dùng số tính từ tiền và tỷ giá.</li>
       <li><b>Dòng 2158 (tuần 10.3)</b> dùng sai tham chiếu (cột D thay cột E), làm chi bị thiếu ${fmt2(-(row2158?.diffK ?? 0))} USD'000K.</li>
       <li><b>Weekly Plan.</b> Số dư cuối tuần của app cộng điều chỉnh ngân hàng (VND ${fmtInt(bank.vnd)}, USD ${fmt2(bank.usd)}); bảng Weekly trong file gốc không cộng.</li>
       <li><b>Thống kê Overview (C26:C28).</b> File gốc chỉ tính 48 dòng đầu (đến ${fmtDate(Q.overviewRange.excelRangeTo)}). App tính cả kỳ: ${fmtInt(Q.overviewRange.shortAll)} ngày dưới ngưỡng, thấp nhất VND ${fmtInt(Q.overviewRange.lowestAllVnd)}.</li>

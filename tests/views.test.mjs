@@ -57,7 +57,7 @@ test('payments: filter by include and paginate 150 per page', () => {
   assert.ok(all.includes('Trang 1/'), 'paging');
   const f = { ...state, pay: { q: '', include: 'Lỗi dữ liệu', cur: '', cat: '', page: 0 } };
   const html = render('payments', f);
-  assert.ok(html.includes('17 / 2.277'), 'shows 17 matching rows out of 2,277');
+  assert.ok(html.includes('17 / 2,277'), 'shows 17 matching rows out of 2,277');
 });
 
 test('category select never offers the Cashflow subtotal label', () => {
@@ -104,10 +104,11 @@ test('text from the user is escaped everywhere it is printed', () => {
 
 test('format helpers', () => {
   assert.equal(fmtInt(-0.4), '0');
-  assert.equal(fmtInt(1234567.6), '1.234.568');
-  assert.equal(fmt2(1234.5), '1.234,50');
+  assert.equal(fmtInt(1234567.6), '1,234,568');
+  assert.equal(fmt2(1234.5), '1,234.50');
   assert.equal(fmtDate('2026-10-05'), '05/10/2026');
-  assert.equal(toNum('1,5'), 1.5);
+  assert.equal(toNum('1,500.5'), 1500.5);
+  assert.equal(toNum('1234.5'), 1234.5);
   assert.equal(toNum(''), null);
   assert.equal(toDate('2026-13'), null);
 });
