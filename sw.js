@@ -1,6 +1,6 @@
 // Service worker: keeps the app shell available offline. Data is never cached here
 // (it lives in the browser store or in Firestore). Bump CACHE when the shell changes.
-const CACHE = 'svl-cashflow-shell-v6';
+const CACHE = 'svl-cashflow-shell-v7';
 const SHELL = [
   './',
   './index.html',
@@ -12,6 +12,7 @@ const SHELL = [
   './js/format.js',
   './firebase-config.js',
   './src/engine.js',
+  './src/ai-export.js',
   './src/importer.js',
   './src/structure.js',
   './src/quality.js',
