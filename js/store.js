@@ -317,65 +317,80 @@ export async function createCloudStore(cfg) {
 
     async replaceAll(next) {
       requireRole(['admin']);
-      const clean = withDefaults(next);
-      const importedAt = new Date().toISOString();
-      // Delete what is there, then write the new dataset in chunks
-      // Delete only documents that will not be written again, so no document gets two writes in one batch
-      const keep = {
-        ...Object.fromEntries(LIST_COLLECTIONS.map((c) => [c, new Set(clean[c].map((x) => String(x.id)))])),
-        recon: new Set(Object.keys(clean.recon)),
-      };
-      const oldIds = {
-        ...Object.fromEntries(LIST_COLLECTIONS.map((c) => [c, (ds?.[c] || []).map((x) => String(x.id))])),
-        recon: Object.keys(ds?.recon || {}),
-      };
-      const ops = [];
-      for (const [coll, ids] of Object.entries(oldIds)) {
-        for (const id of ids) if (!keep[coll].has(id)) ops.push((b) => b.delete(fsMod.doc(db, coll, docKey(id))));
+      if (ds?.importedAt) {
+        throw new Error('Firestore đã có dữ liệu. Không được tự động ghi đè dữ liệu đang dùng chung.');
       }
-      for (const coll of LIST_COLLECTIONS) for (const item of clean[coll]) ops.push((b) => b.set(fsMod.doc(db, coll, docKey(item.id)), item));
-      for (const [date, row] of Object.entries(clean.recon)) ops.push((b) => b.set(fsMod.doc(db, 'recon', docKey(date)), { ...row, date }));
-      ops.push((b) => b.set(fsMod.doc(db, 'config', 'main'), { settings: clean.settings, fxDefaults: clean.fxDefaults, categories: clean.categories, importedAt }));
-      await batchWrite(ops);
-      ds = { ...clean, importedAt };
+      const clean = withDefaults(next);
+      if (!clean.settings?.openingDate || !clean.settings?.planEnd) {
+        throw new Error('Bản sao lưu thiếu ngày bắt đầu/kết thúc kế hoạch.');
+      }
+      if (!Object.keys(clean.cashflowActuals || {}).length || clean.cashflowOpening == null) {
+        throw new Error('Bản sao lưu thiếu lịch sử Cashflow. Hãy dùng bản sao lưu đầy đủ mới hoặc file Excel gốc có sheet Cashflow_Summary.');
+      }
+      const importedAt = new Date().toISOString();
+      status.state = 'migrating';
+      status.message = 'Đang khởi tạo bản nhập Firestore…';
       emit();
+      // Reserve the dataset, so other live users do not see partial migration.
+      await fsMod.setDoc(fsMod.doc(db, 'config', 'main'), {
+        dataStatus: 'importing', migrationStartedAt: importedAt,
+      }, { merge: true });
+      try {
+        const ops = [];
+        for (const coll of LIST_COLLECTIONS) for (const item of clean[coll]) {
+          ops.push(batch => batch.set(fsMod.doc(db, coll, docKey(item.id)), item));
+        }
+        for (const [date, row] of Object.entries(clean.recon || {})) {
+          ops.push(batch => batch.set(fsMod.doc(db, 'recon', docKey(date)), { ...row, date }));
+        }
+        await batchWrite(ops);
+        // The final config is last; the app becomes readable only after it succeeds.
+        await fsMod.setDoc(fsMod.doc(db, 'config', 'main'), {
+          settings: clean.settings, fxDefaults: clean.fxDefaults,
+          categories: clean.categories, cashflowActuals: clean.cashflowActuals,
+          cashflowOpening: clean.cashflowOpening,
+          cashflowOpeningStored: clean.cashflowOpeningStored,
+          importedAt, dataStatus: 'ready',
+        });
+        status.message = 'Đã ghi dữ liệu lên Firestore. Đang chờ các listener cập nhật…';
+        emit();
+      } catch (error) {
+        status.state = 'migrating';
+        status.message = 'Nhập chưa hoàn tất. Giữ bản JSON, kiểm tra kết nối và thử nhập lại. ' + (error?.message || error);
+        emit();
+        throw error;
+      }
     },
 
     async patchSettings(patch) {
       requireRole(['admin']);
-      ds = reduce.settings(ds || withDefaults(null), patch);
-      emit();
-      await fsMod.setDoc(fsMod.doc(db, 'config', 'main'), { settings: ds.settings }, { merge: true });
+      const next = reduce.settings(ds, patch);
+      await fsMod.setDoc(fsMod.doc(db, 'config', 'main'), { settings: next.settings }, { merge: true });
     },
 
     async patchFxDefaults(patch) {
       requireRole(['admin']);
-      ds = reduce.fxDefaults(ds || withDefaults(null), patch);
-      emit();
-      await fsMod.setDoc(fsMod.doc(db, 'config', 'main'), { fxDefaults: ds.fxDefaults }, { merge: true });
+      const next = reduce.fxDefaults(ds, patch);
+      await fsMod.setDoc(fsMod.doc(db, 'config', 'main'), { fxDefaults: next.fxDefaults }, { merge: true });
     },
 
     async upsert(coll, item) {
       requireRole(['editor', 'admin']);
       if (!LIST_COLLECTIONS.includes(coll)) throw new Error('Tập dữ liệu không hợp lệ.');
-      ds = reduce.upsert(ds || withDefaults(null), coll, item);
-      emit();
-      await writeDoc(coll, item.id, ds[coll].find((x) => x.id === item.id));
+      const next = reduce.upsert(ds, coll, item);
+      await writeDoc(coll, item.id, next[coll].find(x => x.id === item.id));
     },
 
     async remove(coll, id) {
       requireRole(['editor', 'admin']);
       if (!LIST_COLLECTIONS.includes(coll)) throw new Error('Tập dữ liệu không hợp lệ.');
-      ds = reduce.remove(ds, coll, id);
-      emit();
       await deleteDoc(coll, id);
     },
 
     async upsertRecon(date, patch) {
       requireRole(['editor', 'admin']);
-      ds = reduce.recon(ds || withDefaults(null), date, patch);
-      emit();
-      await writeDoc('recon', date, { ...ds.recon[date], date });
+      const next = reduce.recon(ds, date, patch);
+      await writeDoc('recon', date, { ...next.recon[date], date });
     },
   };
   return store;
