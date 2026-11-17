@@ -18,6 +18,8 @@ const state = {
   Q: null,
   pay: { q: '', include: '', cur: '', cat: '', page: 0 },
   cf: { ...CF_FILTER_DEFAULT },
+  cal: { month: '', cur: 'VND' },
+  ov: { mFrom: '', mTo: '' },
   dayKey: null,
   importPreview: null,
   importStatus: '',
@@ -44,7 +46,7 @@ function paint() {
   document.title = `SVL Dự báo dòng tiền — ${TITLES[state.view] || ''}`.trim();
 }
 const TITLES = {
-  overview: 'Tổng quan', plan: 'Kế hoạch ngày', details: 'Chi tiết ngày', payments: 'Thanh toán',
+  overview: 'Tổng quan', plan: 'Kế hoạch ngày', calendar: 'Lịch dòng tiền', details: 'Chi tiết ngày', payments: 'Thanh toán',
   receipts: 'Thu', fx: 'Giao dịch FX', bank: 'Điều chỉnh NH', recon: 'Đối chiếu', accounts: 'Số dư đầu',
   weekly: 'Kế hoạch tuần', cashflow: 'Dòng tiền', opex: 'Opex', quality: 'Kiểm tra dữ liệu', import: 'Nhập file', settings: 'Cài đặt',
 };
@@ -96,14 +98,23 @@ async function onClick(e) {
         paint();
         break;
 
-      case 'cf-reset':
-        // resets the filters only; folded groups and the chart strip stay as they are
-        state.cf = { ...CF_FILTER_DEFAULT, collapsed: state.cf.collapsed, charts: state.cf.charts };
+      case 'cal-nav':
+        state.cal = { ...state.cal, month: el.dataset.month };
         paint();
         break;
 
-      case 'cf-charts':
-        state.cf = { ...state.cf, charts: !state.cf.charts };
+      case 'cal-day':
+        state.dayKey = el.dataset.date;
+        state.view = 'details';
+        location.hash = 'details';
+        setMessage('');
+        paint();
+        window.scrollTo(0, 0);
+        break;
+
+      case 'cf-reset':
+        // resets the filters only; folded groups stay as they are
+        state.cf = { ...CF_FILTER_DEFAULT, collapsed: state.cf.collapsed };
         paint();
         break;
 
@@ -254,6 +265,17 @@ async function onChange(e) {
       case 'cfmode':
         await store.patchSettings({ cfSourceLinks: el.value === 'source' });
         break;
+
+      case 'cal-cur':
+        state.cal = { ...state.cal, cur: el.value };
+        paint();
+        break;
+
+      case 'ov-filter': {
+        state.ov = { ...state.ov, [el.dataset.field]: el.value };
+        paint();
+        break;
+      }
 
       case 'cf-filter': {
         const field = el.dataset.field;

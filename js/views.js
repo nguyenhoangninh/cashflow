@@ -7,6 +7,7 @@ import { fmtInt, fmt2, fmtAmt, fmtDate, esc, negClass, isNum } from './format.js
 export const TABS = [
   ['overview', 'Tổng quan'],
   ['plan', 'Kế hoạch ngày'],
+  ['calendar', 'Lịch dòng tiền'],
   ['details', 'Chi tiết ngày'],
   ['payments', 'Thanh toán'],
   ['receipts', 'Thu'],
@@ -24,15 +25,16 @@ export const TABS = [
 
 // Navigation groups shown in the sidebar (same ids as TABS).
 export const GROUPS = [
-  ['Dự báo', ['overview', 'plan', 'details', 'weekly', 'cashflow']],
+  ['Dự báo', ['overview', 'plan', 'calendar', 'details', 'weekly', 'cashflow']],
   ['Dữ liệu', ['payments', 'receipts', 'fx', 'bank', 'recon', 'accounts', 'opex']],
   ['Hệ thống', ['quality', 'import', 'settings']],
 ];
 
 const TAB_LABEL = Object.fromEntries(TABS);
 const PAGE_INFO = {
-  overview: ['Tổng quan', 'Số dư đầu kỳ, số ngày dưới ngưỡng và các chỉ số chính của kế hoạch dòng tiền.'],
+  overview: ['Tổng quan', 'Số dư đầu kỳ, số ngày dưới ngưỡng, biểu đồ dòng tiền theo tuần và các chỉ số chính.'],
   plan: ['Kế hoạch ngày', 'Số dư VND và USD theo từng ngày, kèm cảnh báo và gợi ý giao dịch FX.'],
+  calendar: ['Lịch dòng tiền', 'Thu, chi và số dư cuối ngày theo tháng. Bấm một ngày để xem chi tiết.'],
   details: ['Chi tiết ngày', 'Các khoản chi trong một ngày được chọn.'],
   payments: ['Thanh toán', 'Danh sách Payment Request: ngày dự kiến, trạng thái đưa vào kế hoạch và danh mục.'],
   receipts: ['Thu', 'Các khoản thu dự kiến theo sheet Receipts.'],
@@ -41,7 +43,7 @@ const PAGE_INFO = {
   recon: ['Đối chiếu', 'So sánh số dư thực tế với kế hoạch theo từng ngày.'],
   accounts: ['Số dư đầu kỳ', 'Số dư đầu theo tài khoản và tỷ giá mặc định.'],
   weekly: ['Kế hoạch tuần', 'Thu, chi và số dư cuối theo từng tuần.'],
-  cashflow: ['Dòng tiền', "Dòng tiền theo tuần, USD'000K. TT: tuần thực tế, DB: tuần dự báo. Bấm tên nhóm để thu gọn hoặc mở ra."],
+  cashflow: ['Dòng tiền', "Dòng tiền theo tuần hoặc theo tháng, USD'000K. TT: thực tế, DB: dự báo. Bấm tên nhóm để thu gọn hoặc mở ra."],
   opex: ['Opex', "Chi phí hoạt động theo tháng, đơn vị USD'000K."],
   settings: ['Cài đặt', 'Ngày bắt đầu, ngày kết thúc và các ngưỡng cảnh báo dùng cho kế hoạch và dòng tiền.'],
   quality: ['Kiểm tra dữ liệu', 'Các khác biệt giữa file gốc và ứng dụng, cùng các dòng dữ liệu nguồn cần xem.'],
@@ -59,8 +61,17 @@ const sel = (value, options, attrs = '') => `<select ${attrs}>${options
   .join('')}</select>`;
 const dateVal = (v) => (v ? esc(v) : '');
 const numVal = (v) => (isNum(v) ? esc(v) : '');
-const cell = (v, cls = '') => `<td${cls ? ` class="${cls}"` : ''}>${v}</td>`;
-const hcell = (v, cls = '') => `<th${cls ? ` class="${cls}"` : ''}>${v}</th>`;
+// Numeric cells (money / k2 spans or number inputs) get the num class, so they align right.
+const NUM_CELL = /class="(w-)?num/;
+const NUM_HEAD = /VND|USD|Số tiền|Tỷ giá|Số dư|Giá trị|Chênh lệch|Tổng|Cuối|Đầu|Bán|Mua|Thu$|Chi$/;
+const cell = (v, cls = '') => {
+  const c = [cls, NUM_CELL.test(String(v)) ? 'num' : ''].filter(Boolean).join(' ');
+  return `<td${c ? ` class="${c}"` : ''}>${v}</td>`;
+};
+const hcell = (v, cls = '') => {
+  const c = [cls, !cls && NUM_HEAD.test(String(v)) ? 'num' : ''].filter(Boolean).join(' ');
+  return `<th${c ? ` class="${c}"` : ''}>${v}</th>`;
+};
 const money = (v, cur) => `<span class="num${negClass(v)}">${fmtAmt(v, cur)}</span>`;
 const k2 = (v) => `<span class="num${negClass(v)}">${fmt2(v)}</span>`;
 
@@ -76,6 +87,7 @@ export function render(view, s) {
       : ({
       overview: overview,
       plan: plan,
+      calendar: calendar,
       details: details,
       payments: payments,
       receipts: receipts,
@@ -214,6 +226,15 @@ function overview(s) {
   const card = (label, value, sub = '', cls = '') =>
     `<div class="kpi ${cls}"><div class="kl">${esc(label)}</div><div class="kv">${value}</div><div class="ks">${sub}</div></div>`;
 
+  const cfAll = calc.cashflow;
+  const ovF = { ...CF_FILTER_DEFAULT, mFrom: s.ov?.mFrom ?? '', mTo: s.ov?.mTo ?? '' };
+  const ovCols = filterCashflow(cfAll, ovF).cols;
+  const cfBlock = `<div class="section-head">
+      <h2>Dòng tiền theo tuần</h2>
+      <div class="toolbar cf-bar">${monthRangeControls(cfAll, ovF, 'ov-filter')}
+        <span class="muted tb-count">${ovCols.length}/${cfAll.weeks.length} tuần</span></div>
+    </div>
+    ${ovCols.length ? cfCharts(cfAll, ovCols) : '<div class="notice">Không có tuần nào khớp bộ lọc.</div>'}`;
   const error = calc.plan.error ? `<div class="notice bad">${esc(calc.plan.error)} (${esc(calc.plan.status)})</div>` : '';
   const empty = !pays.length ? `<div class="notice">Chưa có dữ liệu thanh toán.</div>` : '';
   return `${error}${empty}
@@ -238,6 +259,7 @@ function overview(s) {
     ${card('Thu dự kiến VND', `<span class="num">${fmtInt(rcSum('VND'))}</span>`, 'từ sheet Receipts')}
     ${card('Thu dự kiến USD', `<span class="num">${fmt2(rcSum('USD'))}</span>`, 'từ sheet Receipts')}
   </div>
+  ${cfBlock}
 `;
 }
 
@@ -260,7 +282,7 @@ function plan(s) {
     return `<tr class="${bad ? 'bad-row' : ''}">
       ${cell(fmtDate(d.date))}${cell(esc(d.day), 'muted')}
       ${cell(money(d.openVnd, 'VND'))}${cell(money(d.inVnd, 'VND'))}${cell(money(d.outVnd, 'VND'))}
-      ${cell(money(d.sellUsd, 'USD'))}${cell(money(d.buyUsd, 'USD'))}${cell(fmtInt(d.sellRate))}
+      ${cell(money(d.sellUsd, 'USD'))}${cell(money(d.buyUsd, 'USD'))}${cell(fmtInt(d.sellRate), 'num')}
       ${cell(money(d.closeVnd, 'VND'))}
       ${cell(money(d.openUsd, 'USD'))}${cell(money(d.inUsd, 'USD'))}${cell(money(d.outUsd, 'USD'))}
       ${cell(money(d.closeUsd, 'USD'))}${cell(money(d.totalUsd, 'USD'))}
@@ -460,7 +482,7 @@ function recon(s) {
   const body = rows.map((r) => {
     const raw = s.ds.recon?.[r.date] || {};
     const inp = (field, width = 'w-num') =>
-      `<td><input class="${width}" type="number" step="any" value="${numVal(raw[field])}" data-change="recon" data-date="${r.date}" data-field="${field}"></td>`;
+      `<td class="num"><input class="${width}" type="number" step="any" value="${numVal(raw[field])}" data-change="recon" data-date="${r.date}" data-field="${field}"></td>`;
     return `<tr class="${r.status && r.status !== 'OK' ? 'bad-row' : ''}">
       ${cell(fmtDate(r.date))}
       ${inp('uobVnd')}${inp('uobUsd1')}${inp('uobUsd2')}${inp('vtVnd')}${inp('vtUsd')}
@@ -524,8 +546,8 @@ function weekly(s) {
 // ---------- Cashflow (USD'000K) ----------
 // Default filters of the cashflow screen (also used by the reset button in app.js).
 // mFrom / mTo: first and last month shown ('' = all). collapsed: group keys (Excel row numbers) that are folded.
-// charts: whether the chart strip above the table is shown. collapsed and charts are kept when the filters are reset.
-export const CF_FILTER_DEFAULT = { mFrom: '', mTo: '', kind: 'all', hideZero: false, charts: true, collapsed: {} };
+// view: 'week' (one column per week) or 'month' (one column per month). collapsed is kept when the filters are reset.
+export const CF_FILTER_DEFAULT = { mFrom: '', mTo: '', kind: 'all', hideZero: false, view: 'week', collapsed: {} };
 const CF_SUMMARY = ['sum_receipt', 'sum_opex', 'sum_capex', 'net', 'ending', 'opening'];
 const CF_LEAF = ['receipt', 'payable', 'opex', 'capex', 'debt', 'buffer'];
 const CF_TOTAL = ['sum_receipt', 'sum_opex', 'sum_capex'];
@@ -714,32 +736,68 @@ function cfCharts(cf, cols) {
   return `${tiles}<div class="cf-charts">${trend}${mix}</div>`;
 }
 
+// Month range controls (Từ / Đến) shared by the cashflow screen and the overview charts.
+function monthRangeControls(cf, f, field) {
+  const months = [...new Set(cf.weeks.map((w) => monthNum(w.code)))];
+  const tag = (m) => {
+    const first = cf.weeks.find((w) => monthNum(w.code) === m);
+    return `T${m} (${first.actual ? 'TT' : 'DB'})`;
+  };
+  const opts = (value, allLabel) => [['', allLabel], ...months.map((m) => [String(m), tag(m)])]
+    .map(([v, t]) => `<option value="${v}" ${String(value ?? '') === v ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  return `<label>Từ <select data-change="${field}" data-field="mFrom">${opts(f.mFrom, 'Đầu')}</select></label>
+    <label>Đến <select data-change="${field}" data-field="mTo">${opts(f.mTo, 'Cuối')}</select></label>`;
+}
+
+// Month view: flows add up over the weeks of each month. The opening comes from the month's first week
+// and the ending from its last week. Works on the rows returned by filterCashflow.
+export function monthView(cf, cols, rows) {
+  const keys = [...new Set(cols.map((i) => monthNum(cf.weeks[i].code)))];
+  const groups = keys.map((m) => cols.filter((i) => monthNum(cf.weeks[i].code) === m));
+  const weeks = groups.map((idx) => {
+    const a = cf.weeks[idx[0]];
+    const z = cf.weeks[idx[idx.length - 1]];
+    return { code: `T${monthNum(a.code)}`, actual: a.actual, from: a.from, to: z.to };
+  });
+  const out = rows.map((r) => {
+    if (!Array.isArray(r.values)) return r;
+    const values = groups.map((idx) => {
+      if (r.type === 'opening') return Number(r.values[idx[0]]) || 0;
+      if (r.type === 'ending') return Number(r.values[idx[idx.length - 1]]) || 0;
+      return idx.reduce((a, i) => a + (Number(r.values[i]) || 0), 0);
+    });
+    return { ...r, values };
+  });
+  return { weeks, rows: out, cols: weeks.map((_, k) => k) };
+}
+
 function cashflow(s) {
   const cf = s.calc.cashflow;
   const mode = s.ds.settings.cfSourceLinks ? 'source' : 'chain';
   const f = { ...CF_FILTER_DEFAULT, ...(s.cf || {}) };
-  const { cols, rows } = filterCashflow(cf, f);
-  const months = [...new Set(cf.weeks.map((w) => monthNum(w.code)))];
-  const monthTag = (m) => {
-    const first = cf.weeks.find((w) => monthNum(w.code) === m);
-    return `T${m} (${first.actual ? 'TT' : 'DB'})`;
-  };
-  const monthOptions = (sel, allLabel) => [['', allLabel], ...months.map((m) => [String(m), monthTag(m)])]
-    .map(([v, t]) => `<option value="${v}" ${String(sel ?? '') === v ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  const picked = filterCashflow(cf, f);
+  const monthMode = f.view === 'month';
+  const V = monthMode
+    ? monthView(cf, picked.cols, picked.rows)
+    : { weeks: cf.weeks, rows: picked.rows, cols: picked.cols };
+  const { weeks, rows, cols } = V;
+  const unitCount = monthMode ? new Set(cf.weeks.map((w) => monthNum(w.code))).size : cf.weeks.length;
   const kindOptions = [['all', 'Tất cả'], ['actual', 'Chỉ TT'], ['forecast', 'Chỉ DB']]
     .map(([v, t]) => `<option value="${v}" ${f.kind === v ? 'selected' : ''}>${t}</option>`).join('');
+  const viewOptions = [['week', 'Theo tuần'], ['month', 'Theo tháng']]
+    .map(([v, t]) => `<option value="${v}" ${(v === 'month') === monthMode ? 'selected' : ''}>${t}</option>`).join('');
   const lineCount = rows.filter((r) => r.type !== 'header').length;
-  // A week that starts the forecast (DB) part gets a divider, so the TT/DB boundary is visible in the header and body.
-  const isBoundary = (k) => k > 0 && !cf.weeks[cols[k]].actual && cf.weeks[cols[k - 1]].actual;
+  // A column that starts the forecast (DB) part gets a divider, so the TT/DB boundary is visible in the header and body.
+  const isBoundary = (k) => k > 0 && !weeks[cols[k]].actual && weeks[cols[k - 1]].actual;
   const head = cols.map((i, k) => {
-    const w = cf.weeks[i];
+    const w = weeks[i];
     return `<th class="num${isBoundary(k) ? ' fc' : ''}">
       <div class="wk">${esc(w.code)}<span class="tag ${w.actual ? 'tt' : 'db'}">${w.actual ? 'TT' : 'DB'}</span></div>
       <div class="dates">${dm(w.from)} – ${dm(w.to)}</div></th>`;
   }).join('');
   const labelOf = (r) => {
-    if (r.type === 'opening' && cols.length) return `Số dư đầu kỳ · ${dmy(cf.weeks[cols[0]].from)}`;
-    if (r.type === 'ending' && cols.length) return `Số dư cuối kỳ · ${dmy(cf.weeks[cols[cols.length - 1]].to)}`;
+    if (r.type === 'opening' && cols.length) return `Số dư đầu kỳ · ${dmy(weeks[cols[0]].from)}`;
+    if (r.type === 'ending' && cols.length) return `Số dư cuối kỳ · ${dmy(weeks[cols[cols.length - 1]].to)}`;
     return r.label.trim();
   };
   const cells = (r) => cols.map((i, k) => `<td class="num${isBoundary(k) ? ' fc' : ''}">${k2(r.values[i])}</td>`).join('');
@@ -771,24 +829,88 @@ function cashflow(s) {
     <tbody>${body}</tbody>
   </table></div>`
     : `<div class="notice">Không có tuần nào khớp bộ lọc. Hãy chọn lại khoảng tháng.</div>`;
-  const charts = f.charts ? cfCharts(cf, cols) : '';
   return `<div class="toolbar cf-bar">
     <label title="Chuỗi đúng: số dư đầu mỗi tuần = số dư cuối tuần trước. Như file gốc: theo V8:AC8 của file Excel.">Số dư đầu
       <select data-change="cfmode"><option value="chain" ${mode === 'chain' ? 'selected' : ''}>Chuỗi đúng</option><option value="source" ${mode === 'source' ? 'selected' : ''}>Như file gốc</option></select></label>
     <span class="tb-sep"></span>
-    <label>Từ <select data-change="cf-filter" data-field="mFrom">${monthOptions(f.mFrom, 'Đầu')}</select></label>
-    <label>Đến <select data-change="cf-filter" data-field="mTo">${monthOptions(f.mTo, 'Cuối')}</select></label>
+    <label>Xem <select data-change="cf-filter" data-field="view">${viewOptions}</select></label>
+    ${monthRangeControls(cf, f, 'cf-filter')}
     <label>Loại <select data-change="cf-filter" data-field="kind">${kindOptions}</select></label>
     <label class="radio"><input type="checkbox" data-change="cf-filter" data-field="hideZero" ${f.hideZero ? 'checked' : ''}> Ẩn số 0</label>
     <span class="tb-sep"></span>
-    <button type="button" data-action="cf-charts" title="Hiện hoặc ẩn các biểu đồ phía trên bảng">${f.charts ? 'Ẩn biểu đồ' : 'Hiện biểu đồ'}</button>
     <button type="button" data-action="cf-collapse-all" title="Thu gọn tất cả các nhóm">Thu gọn</button>
     <button type="button" data-action="cf-expand-all" title="Mở tất cả các nhóm">Mở rộng</button>
     <button type="button" data-action="cf-reset">Đặt lại</button>
-    <span class="muted tb-count" title="${lineCount} dòng trong bảng">${cols.length}/${cf.weeks.length} tuần</span>
+    <span class="muted tb-count" title="${lineCount} dòng trong bảng">${cols.length}/${unitCount} ${monthMode ? 'tháng' : 'tuần'}</span>
   </div>
-  ${charts}
   ${table}`;
+}
+
+// ---------- Calendar: receipts, payments and closing balance per day in a month grid ----------
+const WEEKDAY_HEAD = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+function calendar(s) {
+  const days = s.calc.plan.days;
+  if (!days.length) return `<div class="notice">Không có ngày nào trong kế hoạch.</div>`;
+  const cur = s.cal?.cur === 'USD' ? 'USD' : 'VND';
+  const K = cur === 'USD'
+    ? { inn: 'inUsd', out: 'outUsd', close: 'closeUsd' }
+    : { inn: 'inVnd', out: 'outVnd', close: 'closeVnd' };
+  const amt = (v) => fmtAmt(v, cur);
+  const months = [...new Set(days.map((d) => d.date.slice(0, 7)))];
+  const today = s.calc.ctx.today;
+  const month = months.includes(s.cal?.month) ? s.cal.month : (months.find((m) => today && today.startsWith(m)) || months[0]);
+  const at = months.indexOf(month);
+  const prev = at > 0 ? months[at - 1] : '';
+  const next = at < months.length - 1 ? months[at + 1] : '';
+  const [y, mo] = month.split('-').map(Number);
+  const dim = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const lead = (new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() + 6) % 7;   // Monday = 0
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const inMonth = days.filter((d) => d.date.startsWith(`${month}-`));
+  const totIn = sumOf(inMonth, (d) => d[K.inn]);
+  const totOut = sumOf(inMonth, (d) => d[K.out]);
+  const net = totIn - totOut;
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push('<div class="cal-cell blank"></div>');
+  for (let day = 1; day <= dim; day++) {
+    const key = `${month}-${String(day).padStart(2, '0')}`;
+    const dow = (lead + day - 1) % 7;
+    const sun = dow === 6 ? ' sun' : '';
+    const d = byDate.get(key);
+    if (!d) {
+      cells.push(`<div class="cal-cell off${sun}"><span class="cal-day">${day}</span></div>`);
+      continue;
+    }
+    const inV = Number(d[K.inn]) || 0;
+    const outV = Number(d[K.out]) || 0;
+    const todayCls = key === today ? ' today' : '';
+    cells.push(`<div class="cal-cell${sun}${todayCls}" role="button" tabindex="0" data-action="cal-day" data-date="${key}" title="Xem chi tiết ngày ${fmtDate(key)}">
+      <span class="cal-day">${day}</span>
+      ${inV ? `<span class="cal-in">+${amt(inV)}</span>` : ''}
+      ${outV ? `<span class="cal-out">−${amt(Math.abs(outV))}</span>` : ''}
+      <span class="cal-close${Number(d[K.close]) < 0 ? ' neg' : ''}">Dư ${amt(d[K.close])}</span>
+    </div>`);
+  }
+  while (cells.length % 7) cells.push('<div class="cal-cell blank"></div>');
+  return `<div class="toolbar cal-bar">
+      <div class="cal-nav">
+        <button type="button" data-action="cal-nav" data-month="${prev}" ${prev ? '' : 'disabled'} aria-label="Tháng trước">‹</button>
+        <span class="cal-title">Tháng ${mo} năm ${y}</span>
+        <button type="button" data-action="cal-nav" data-month="${next}" ${next ? '' : 'disabled'} aria-label="Tháng sau">›</button>
+      </div>
+      <span class="tb-sep"></span>
+      <label>Tiền tệ <select data-change="cal-cur">${['VND', 'USD'].map((c) => `<option value="${c}" ${c === cur ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    </div>
+    <div class="cal-sum">
+      <div><span class="kl">Tổng thu</span><b class="cal-in">+${amt(totIn)}</b></div>
+      <div><span class="kl">Tổng chi</span><b class="cal-out">−${amt(Math.abs(totOut))}</b></div>
+      <div><span class="kl">Chênh lệch</span><b class="${net < 0 ? 'neg' : ''}">${net < 0 ? '−' : '+'}${amt(Math.abs(net))}</b></div>
+    </div>
+    <div class="cal-grid">
+      ${WEEKDAY_HEAD.map((w) => `<div class="cal-wd${w === 'CN' ? ' sun' : ''}">${w}</div>`).join('')}
+      ${cells.join('')}
+    </div>
+    <div class="status-line">Số liệu theo kế hoạch ngày, đơn vị ${cur}. Bấm một ngày để xem chi tiết. “Dư” là số dư cuối ngày.</div>`;
 }
 
 // ---------- Opex ----------
@@ -797,15 +919,15 @@ function opex(s) {
   const body = o.sections.map((sec) => {
     const items = sec.items.map((it) => `<tr>
       ${cell(esc(it.no || ''), 'muted')}${cell(esc(it.name || ''))}${cell(esc(it.terms || ''), 'muted')}
-      ${it.months.map((v, i) => `<td><input class="w-num" type="number" step="any" value="${numVal(v)}" data-change="opex" data-id="${esc(it.id)}" data-idx="${i}"></td>`).join('')}
+      ${it.months.map((v, i) => `<td class="num"><input class="w-num" type="number" step="any" value="${numVal(v)}" data-change="opex" data-id="${esc(it.id)}" data-idx="${i}"></td>`).join('')}
       ${cell(k2(sumOf(it.months, (x) => x)), 'num')}
     </tr>`).join('');
-    return `<tr class="section"><td colspan="3">${esc(sec.section)}</td>${sec.totals.map((t) => `<td>${k2(t)}</td>`).join('')}<td>${k2(sumOf(sec.totals, (x) => x))}</td></tr>${items}`;
+    return `<tr class="section"><td colspan="3">${esc(sec.section)}</td>${sec.totals.map((t) => `<td class="num">${k2(t)}</td>`).join('')}<td class="num">${k2(sumOf(sec.totals, (x) => x))}</td></tr>${items}`;
   }).join('');
   return `<div class="status-line">Đơn vị USD'000K theo tháng. Sheet Opex Control trong file gốc không được nối với Cashflow; màn hình này cũng vậy.</div>
   <div class="table-wrap sticky"><table class="dense wide">
-    <thead><tr>${['No', 'Khoản mục', 'Điều khoản', ...o.months, 'Tổng'].map((h) => hcell(esc(h))).join('')}</tr></thead>
-    <tbody>${body}<tr class="strong"><td colspan="3">TỔNG</td>${o.grand.map((t) => `<td>${k2(t)}</td>`).join('')}<td>${k2(sumOf(o.grand, (x) => x))}</td></tr></tbody>
+    <thead><tr>${['No', 'Khoản mục', 'Điều khoản', ...o.months, 'Tổng'].map((h, i) => hcell(esc(h), i >= 3 ? 'num' : '')).join('')}</tr></thead>
+    <tbody>${body}<tr class="strong"><td colspan="3">TỔNG</td>${o.grand.map((t) => `<td class="num">${k2(t)}</td>`).join('')}<td class="num">${k2(sumOf(o.grand, (x) => x))}</td></tr></tbody>
   </table></div>`;
 }
 

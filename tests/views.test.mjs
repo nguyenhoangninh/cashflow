@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runAll } from '../src/engine.js';
 import { buildQuality } from '../src/quality.js';
-import { render, TABS, filterCashflow, CF_FILTER_DEFAULT } from '../js/views.js';
+import { render, TABS, filterCashflow, monthView, CF_FILTER_DEFAULT } from '../js/views.js';
 import { fmtInt, fmt2, fmtDate, esc, toNum, toDate } from '../js/format.js';
 import { emptyDataset, withDefaults, reduce } from '../js/store.js';
 
@@ -181,31 +181,79 @@ test('cashflow filters: month range, kind and zero rows', () => {
   });
 });
 
-test('cashflow screen: one-line filter bar, month options, opening date label and charts toggle', () => {
+test('cashflow screen: one-line filter bar, view and month range, opening date label, no charts', () => {
   const html = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, mFrom: '7', mTo: '7' } });
   assert.match(html, /data-action="cf-reset"/);
-  assert.match(html, /data-action="cf-charts"/);
+  assert.ok(!html.includes('data-action="cf-charts"'));
+  assert.match(html, /Xem <select/);
   assert.match(html, /Từ <select/);
   assert.match(html, /T7 \(TT\)/);
   assert.match(html, /Số dư đầu kỳ · 01\/07\/2026/);
   assert.ok(!html.includes('Chỉ tổng hợp'));
   assert.ok(balanced(html, 'table'));
-  assert.ok(html.includes('class="cf-trend"'));
-  assert.ok(html.includes('viz-mix'));
-  const hidden = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, charts: false } });
-  assert.ok(!hidden.includes('cf-trend'));
+  assert.ok(!html.includes('cf-trend'));
   const none = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, mFrom: '9', mTo: '7' } });
   assert.match(none, /Không có tuần nào khớp bộ lọc/);
 });
 
-test('cashflow charts agree with the table: June totals, net and receipts', () => {
+test('overview shows the cashflow charts, filtered by its own month range', () => {
+  const all = render('overview', state);
+  assert.ok(all.includes('class="cf-trend"'));
+  assert.ok(all.includes('viz-mix'));
+  const july = render('overview', { ...state, ov: { mFrom: '7', mTo: '7' } });
+  assert.match(july, /4\/28 tuần|4\/\d+ tuần/);
+  assert.match(july, /Số dư đầu kỳ/);
+});
+
+test('overview charts agree with the table: June totals, net and receipts', () => {
   const cf = chain.cashflow;
-  const html = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, mFrom: '6', mTo: '6' } });
+  const html = render('overview', { ...state, ov: { mFrom: '6', mTo: '6' } });
   const june = cf.weeks.map((w, i) => i).filter((i) => cf.weeks[i].code.startsWith('6.'));
   const sumRow = (type) => june.reduce((a, i) => a + cf.rows.find((r) => r.type === type).values[i], 0);
   const esc2 = (x) => x.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
   assert.match(html, new RegExp(`\\+${esc2(fmt2(sumRow('sum_receipt')))}`));
   assert.match(html, new RegExp(`ròng ${esc2(fmt2(sumRow('net')))}`));
+});
+
+test('month view: flows add up over each month; opening and ending come from its first and last week', () => {
+  const cf = chain.cashflow;
+  const picked = filterCashflow(cf, { ...CF_FILTER_DEFAULT, mFrom: '6', mTo: '7' });
+  const mv = monthView(cf, picked.cols, picked.rows);
+  assert.equal(mv.weeks.length, 2);
+  assert.equal(mv.weeks[0].code, 'T6');
+  const june = cf.weeks.map((w, i) => i).filter((i) => cf.weeks[i].code.startsWith('6.'));
+  const get = (type, i) => cf.rows.find((r) => r.type === type).values[i];
+  const row = (type, k) => mv.rows.find((r) => r.type === type).values[k];
+  const sumJune = (type) => june.reduce((a, i) => a + get(type, i), 0);
+  assert.ok(Math.abs(row('sum_receipt', 0) - sumJune('sum_receipt')) < 1e-6);
+  assert.ok(Math.abs(row('net', 0) - sumJune('net')) < 1e-6);
+  assert.ok(Math.abs(row('opening', 0) - get('opening', june[0])) < 1e-9);
+  assert.ok(Math.abs(row('ending', 0) - get('ending', june[june.length - 1])) < 1e-9);
+  // chain mode: opening + net of the month = ending of the month
+  assert.ok(Math.abs(row('opening', 0) + row('net', 0) - row('ending', 0)) < 0.01);
+  const html = render('cashflow', { ...state, cf: { ...CF_FILTER_DEFAULT, view: 'month', mFrom: '6', mTo: '7' } });
+  assert.match(html, /class="wk">T6</);
+  assert.match(html, /tháng/);
+});
+
+test('calendar: month totals equal the sum of the plan days in that month', () => {
+  const days = chain.plan.days;
+  const month = days[0].date.slice(0, 7);
+  const tot = days.filter((d) => d.date.startsWith(month)).reduce((a, d) => a + d.inVnd, 0);
+  const html = render('calendar', { ...state, cal: { month, cur: 'VND' } });
+  assert.ok(html.includes(`+${fmtInt(tot)}`));
+  assert.ok(html.includes('Tổng thu'));
+  assert.ok(balanced(html, 'div'));
+  assert.ok(render('calendar', { ...state, cal: { month, cur: 'USD' } }).includes('USD'));
+});
+
+test('numbers are right-aligned: numeric cells and headers carry the num class', () => {
+  const w = render('weekly', state);
+  assert.match(w, /<th class="num">Thu VND<\/th>/);
+  assert.match(w, /<td class="num"><span class="num/);
+  assert.match(render('plan', state), /<th class="num">Đầu VND<\/th>/);
+  assert.match(render('accounts', state), /<td class="num"><input class="w-num"/);
+  assert.match(render('opex', state), /<th class="num">/);
 });
 
 test('settings screen holds the planning dates and thresholds, not the overview', () => {
