@@ -160,12 +160,14 @@ function viewImport(s) {
       <button data-action="import-cancel">Hủy</button>
     </div>` : '';
   return `<div class="card">
-      <h2>Nhập dữ liệu từ file Excel</h2>
+      <h2>Nhập dữ liệu Cashflow (Excel hoặc bản sao lưu JSON)</h2>
       <p>Chọn file <code>SVL_Payment_Ver6_Final_Ver_2.xlsm</code> (hoặc file cùng cấu trúc). Ứng dụng đọc các sheet
         Overview, Opening Balances, Payment Request List, Receipts, FX Transactions, Bank Adjustments,
         Reconciliation và Opex Control. Số tài khoản người nhận (cột W) không được nhập.</p>
+      <p class="warn">Trước khi chuyển sang Firebase, hãy sao lưu dữ liệu hiện tại. Bản sao lưu chứa dữ liệu tài chính đầy đủ, chỉ lưu tại nơi an toàn.</p>
+      ${s.ds ? '<button type="button" data-action="backup-dataset">Sao lưu toàn bộ dữ liệu (JSON riêng tư)</button>' : ''}
       <div class="dropzone">
-        <input type="file" id="import-file" accept=".xlsm,.xlsx" data-change="import-file">
+        <input type="file" id="import-file" accept=".xlsm,.xlsx,.json" data-change="import-file">
       </div>
       <div class="status-line" id="import-status">${esc(s.importStatus || '')}</div>
     </div>${preview}`;
