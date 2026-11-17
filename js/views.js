@@ -54,7 +54,7 @@ const PAGE_SIZE = 150;
 const PAY_INCLUDE = ['Yes', 'Paid', 'Review', 'Lỗi dữ liệu', 'No', '—'];
 // Subtotal label of Cashflow row 35: items tagged with it would never reach the Cashflow.
 const HIDDEN_CATEGORY = /^Others \(R&M/;
-const categoryOptions = () => CATEGORIES.filter((c) => !HIDDEN_CATEGORY.test(String(c).trim()));
+export const categoryOptions = () => CATEGORIES.filter((c) => !HIDDEN_CATEGORY.test(String(c).trim()));
 
 const sel = (value, options, attrs = '') => `<select ${attrs}>${options
   .map(([v, label]) => `<option value="${esc(v)}"${String(v) === String(value ?? '') ? ' selected' : ''}>${esc(label)}</option>`)
@@ -291,7 +291,17 @@ function plan(s) {
     </tr>`;
   }).join('');
   const err = p.error ? `<div class="notice bad">${esc(p.error)}</div>` : '';
-  return `${err}<div class="status-line">Từ <b>${fmtDate(c.start)}</b> đến <b>${fmtDate(p.end)}</b> · ${esc(p.status)} · Ngưỡng VND ${fmtInt(c.minVnd)}, USD ${fmt2(c.minUsd)}</div>
+  const st = s.ds?.settings || {};
+  const startWarn = st.planStart && st.openingDate && st.planStart <= st.openingDate
+    ? `<div class="notice">Ngày bắt đầu đặt trước hoặc bằng ngày số dư đầu, nên kế hoạch bắt đầu từ ${fmtDate(st.openingDate)}.</div>`
+    : '';
+  return `${err}${startWarn}<div class="toolbar plan-range">
+    <label>Bắt đầu <input type="date" value="${dateVal(st.planStart)}" data-change="plan-range" data-field="planStart"></label>
+    <label>Kết thúc <input type="date" value="${dateVal(st.planEnd)}" data-change="plan-range" data-field="planEnd"></label>
+    <button type="button" data-action="plan-auto-start" ${st.planStart ? '' : 'disabled'}>Bắt đầu tự động</button>
+    <span class="muted">Để trống ngày bắt đầu để tự động theo đối chiếu gần nhất.</span>
+  </div>
+  <div class="status-line">Từ <b>${fmtDate(c.start)}</b> đến <b>${fmtDate(p.end)}</b> · ${esc(p.status)} · Ngưỡng VND ${fmtInt(c.minVnd)}, USD ${fmt2(c.minUsd)}</div>
   <div class="table-wrap sticky">
   <table class="dense">
     <thead><tr>
@@ -418,7 +428,7 @@ const CRUD = {
     cols: [['date', 'Ngày', 'date'], ['description', 'Nội dung'], ['source', 'Nguồn'], ['currency', 'TT'],
       ['amount', 'Số tiền', 'num'], ['category', 'Danh mục'], ['notes', 'Ghi chú']],
     form: [['date', 'Ngày', 'date'], ['description', 'Nội dung', 'text'], ['source', 'Nguồn', 'text'],
-      ['currency', 'Tiền tệ', 'cur'], ['amount', 'Số tiền', 'number'], ['category', 'Danh mục', 'text'], ['notes', 'Ghi chú', 'text']],
+      ['currency', 'Tiền tệ', 'cur'], ['amount', 'Số tiền', 'number'], ['category', 'Danh mục', 'rccat'], ['notes', 'Ghi chú', 'text']],
     sort: (x) => x.date,
     prefix: 'rc',
   },
@@ -454,7 +464,11 @@ function crudView(s, coll) {
     return cell(esc(v ?? ''));
   }).join('')}${cell(`<button data-action="crud-del" data-coll="${coll}" data-id="${esc(r.id)}">Xóa</button>`)}</tr>`).join('');
   const totals = coll === 'receipts' ? `Tổng VND ${fmtInt(sumOf(rows.filter((r) => r.currency === 'VND'), (r) => r.amount))} · Tổng USD ${fmt2(sumOf(rows.filter((r) => r.currency === 'USD'), (r) => r.amount))}` : `${fmtInt(rows.length)} dòng`;
+  const rcCats = coll === 'receipts'
+    ? [...new Set((s.ds.receipts || []).map((r) => String(r.category || '').trim()).filter(Boolean))].sort()
+    : [];
   const form = cfg.form.map(([name, label, t]) => {
+    if (t === 'rccat') return `<label>${esc(label)}<input type="text" name="${name}" list="rc-cats" placeholder="Chọn hoặc nhập danh mục mới"></label>`;
     if (t === 'date') return dateField(name, label, null);
     if (t === 'number') return numField2(name, label);
     if (t === 'text') return textField(name, label);
@@ -467,6 +481,7 @@ function crudView(s, coll) {
   <div class="table-wrap"><table class="dense"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${cfg.cols.length + 1}" class="muted">Chưa có dòng nào</td></tr>`}</tbody></table></div>
   <details class="card" open><summary>Thêm dòng</summary>
     <form data-form="crud-add" data-coll="${coll}" class="grid-form">${form}
+      ${coll === 'receipts' ? `<datalist id="rc-cats">${rcCats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>` : ''}
       <div class="form-actions"><button class="primary" type="submit">Thêm</button></div>
     </form>
   </details>`;

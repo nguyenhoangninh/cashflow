@@ -98,8 +98,8 @@ export function buildQuality(ds, chain, source) {
     overviewRange: {
       shortAll,
       shortExcel,
-      lowestAllVnd: Math.min(...days.map((d) => d.closeVnd)),
-      lowestExcelVnd: Math.min(...excelDays.map((d) => d.closeVnd)),
+      lowestAllVnd: days.length ? Math.min(...days.map((d) => d.closeVnd)) : null,
+      lowestExcelVnd: excelDays.length ? Math.min(...excelDays.map((d) => d.closeVnd)) : null,
       excelRangeTo: excelDays.length ? excelDays[excelDays.length - 1].date : null,
     },
     stray,

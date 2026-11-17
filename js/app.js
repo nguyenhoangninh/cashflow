@@ -3,7 +3,8 @@ import { runAll, todayKey } from '../src/engine.js';
 import { buildQuality } from '../src/quality.js';
 import { importWorkbook } from '../src/importer.js';
 import { createLocalStore, createCloudStore } from './store.js';
-import { render, CF_FILTER_DEFAULT } from './views.js';
+import { render, CF_FILTER_DEFAULT, categoryOptions } from './views.js';
+import { validatePayment, validateCrud, replacedCounts, validatePlanRange } from '../src/validate.js';
 import { toNum, toText, toDate } from './format.js';
 import { firebaseConfig } from '../firebase-config.js';
 
@@ -98,6 +99,10 @@ async function onClick(e) {
         paint();
         break;
 
+      case 'plan-auto-start':
+        await store.patchSettings({ planStart: null });
+        break;
+
       case 'cal-nav':
         state.cal = { ...state.cal, month: el.dataset.month };
         paint();
@@ -177,6 +182,10 @@ async function onClick(e) {
       case 'import-confirm': {
         const prev = state.ds?.settings || {};
         const next = state.importPreview;
+        const total = Object.values(next).reduce((a, v) => a + (Array.isArray(v) ? v.length : 0), 0);
+        const cur = replacedCounts(state.ds || {});
+        const lost = `Sẽ bị thay: ${cur.payments} khoản thanh toán (trong đó ${cur.manualPayments} khoản nhập tay), ${cur.receipts} khoản thu, ${cur.fx} giao dịch FX, ${cur.bankAdj} điều chỉnh NH.`;
+        if (!confirm(`Thay thế TOÀN BỘ dữ liệu hiện có bằng ${total.toLocaleString('vi-VN')} bản ghi từ file này?\n\n${lost}\nThao tác không hoàn tác được.`)) break;
         next.settings = { ...next.settings, cfSourceLinks: !!prev.cfSourceLinks, todayOverride: prev.todayOverride ?? null };
         await store.replaceAll(next);
         state.importPreview = null;
@@ -229,6 +238,19 @@ async function onChange(e) {
         paint();
         break;
 
+      case 'plan-range': {
+        const field = el.dataset.field;
+        const value = toDate(el.value);
+        const st = state.ds.settings;
+        const check = validatePlanRange(
+          { planStart: st.planStart ?? null, planEnd: st.planEnd ?? null, [field]: value },
+          { openingDate: st.openingDate }
+        );
+        if (check.error) throw new Error(check.error);
+        await store.patchSettings({ [field]: value });
+        break;
+      }
+
       case 'pay-filter':
         state.pay[el.dataset.field] = el.value;
         state.pay.page = 0;
@@ -238,6 +260,7 @@ async function onChange(e) {
       case 'pay': {
         const field = el.dataset.field;
         const value = field === 'lenaPlanDate' || field === 'actualDate' ? toDate(el.value) : toText(el.value) || null;
+        if (field === 'category' && !value) throw new Error('Danh mục không được để trống: khoản sẽ không vào Cashflow.');
         await store.upsert('payments', { id: el.dataset.id, [field]: value });
         break;
       }
@@ -322,8 +345,11 @@ async function onSubmit(e) {
         break;
 
       case 'payment-add': {
-        if (!v.item) throw new Error('Nhập mã khoản.');
-        if (v.amount == null) throw new Error('Nhập số tiền.');
+        const check = validatePayment(v, {
+          payments: state.ds.payments || [],
+          categories: categoryOptions().map((c) => c.trim()),
+        });
+        if (check.error) throw new Error(check.error);
         await store.upsert('payments', {
           id: newId('m'),
           sourceRow: null,
@@ -357,13 +383,11 @@ async function onSubmit(e) {
       case 'crud-add': {
         const coll = form.dataset.coll;
         const prefix = { receipts: 'rc', fx: 'fx', bankAdj: 'ba' }[coll];
-        if (!v.date) throw new Error('Nhập ngày.');
-        if (v.amount == null && v.usd == null) throw new Error('Nhập số tiền.');
-        const item = { id: newId(prefix), ...v };
-        if (coll === 'fx') {
-          if (v.usd == null || v.rate == null) throw new Error('Nhập USD và tỷ giá.');
-          item.vnd = v.vnd ?? Math.round(v.usd * v.rate);
-        }
+        const check = validateCrud(coll, v, state.ds);
+        if (check.error) throw new Error(check.error);
+        if (check.warnings.length && !confirm(`${check.warnings.join('\n')}\n\nVẫn thêm dòng này?`)) break;
+        const item = { ...v, id: newId(prefix) };
+        if (coll === 'fx') item.vnd = v.vnd ?? Math.round(v.usd * v.rate);
         if (coll === 'receipts' || coll === 'bankAdj') item.currency = (v.currency || 'VND').toUpperCase();
         await store.upsert(coll, item);
         form.reset();
@@ -407,6 +431,12 @@ async function boot() {
   onStore(store.get(), store.status);
 
   document.addEventListener('click', onClick);
+  document.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[role="button"][data-action]')) {
+      e.preventDefault();
+      e.target.click();
+    }
+  });
   document.addEventListener('change', onChange);
   document.addEventListener('submit', onSubmit);
   window.addEventListener('hashchange', () => {

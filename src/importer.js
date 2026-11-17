@@ -52,6 +52,15 @@ export function importWorkbook(XLSX, buffer) {
   const ob = get(need('Opening Balances'));
   const pl = need('Payment Request List');
   const plg = get(pl);
+  // Guard against a moved or re-laid-out source sheet: the fixed cell addresses below are only valid
+  // when these header labels (row 2) are where we expect them.
+  const PRL_HEADERS = { B: 'item no', E: 'amount', F: 'currency', J: 'payee', S: 'actual', AB: 'include', AD: 'plan date', AJ: 'summary category' };
+  for (const [col, key] of Object.entries(PRL_HEADERS)) {
+    const got = String(plg(`${col}2`) ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!got.includes(key)) {
+      throw new Error(`Sai bố cục sheet "Payment Request List": ô ${col}2 phải là "${key}…" nhưng đọc được "${got || '(trống)'}". Kiểm tra lại file gốc trước khi nhập.`);
+    }
+  }
   const rcWs = need('Receipts');
   const rcg = get(rcWs);
   const fxg = get(need('FX Transactions'));
@@ -97,9 +106,10 @@ export function importWorkbook(XLSX, buffer) {
     seenIds.add(id);
     const sRaw = plg(`S${r}`);
     const sDate = toDateKey(sRaw);
-    // Source rows without formulas in Z/AB/AD are silently left out of the Excel plan.
-    const abCell = pl[`AB${r}`];
-    const hasFormula = !!(abCell && (abCell.f || (typeof abCell.v === 'string' && abCell.v.startsWith('='))));
+    // Rows whose Z/AB/AD cells lack formulas are not computed by the Excel plan: flag them.
+    const isFormulaCell = (cell) => !!(cell && (cell.f || (typeof cell.v === 'string' && cell.v.startsWith('='))));
+    const missingFormulaCols = ['Z', 'AB', 'AD'].filter((c) => !isFormulaCell(pl[`${c}${r}`]));
+    const hasFormula = missingFormulaCols.length === 0;
     const aiCell = pl[`AI${r}`];
     const weekTyped = !!(aiCell && aiCell.v != null && !aiCell.f); // week typed over the formula
     // USD'K column (AK) must read amount E and currency F of the SAME row.
@@ -137,7 +147,7 @@ export function importWorkbook(XLSX, buffer) {
       lenaPlanDate: toDateKey(plg(`X${r}`)),
       category: txt(plg(`AJ${r}`)),
       project: txt(plg(`AL${r}`)),
-      dataIssue: hasFormula ? null : 'Thiếu công thức trong file gốc (Z/AB/AD trống): Excel không đưa khoản này vào kế hoạch.',
+      dataIssue: hasFormula ? null : `Thiếu công thức trong file gốc (${missingFormulaCols.join('/')} trống): Excel không đưa khoản này vào kế hoạch.`,
       weekTyped: weekTyped ? txt(aiCell.v) : null,
       akIssue,
       akFile: akCell && akCell.v != null && typeof akCell.v === 'number' ? akCell.v : null, // USD'K value as stored in the file

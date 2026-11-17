@@ -185,11 +185,24 @@ export async function createCloudStore(cfg) {
   const deleteDoc = async (coll, id) => fsMod.deleteDoc(fsMod.doc(db, coll, docKey(id)));
 
   // Writes in chunks of 400 (Firestore batch limit is 500)
+  // Batches are not atomic across chunks: a failure part-way leaves the data partial.
+  // Report how many operations were committed so the user knows to run the import again.
   async function batchWrite(ops) {
+    let done = 0;
     for (let i = 0; i < ops.length; i += 400) {
+      const slice = ops.slice(i, i + 400);
       const batch = fsMod.writeBatch(db);
-      ops.slice(i, i + 400).forEach((op) => op(batch));
-      await batch.commit();
+      slice.forEach((op) => op(batch));
+      try {
+        await batch.commit();
+      } catch (err) {
+        throw new Error(
+          done === 0
+            ? `Không ghi được dữ liệu lên Firebase (${err.message || err}). Dữ liệu chưa thay đổi.`
+            : `Ghi dữ liệu dừng giữa chừng sau ${done}/${ops.length} thao tác (${err.message || err}). Dữ liệu trên Firebase có thể chưa đầy đủ: hãy nhập lại file.`
+        );
+      }
+      done += slice.length;
     }
   }
 

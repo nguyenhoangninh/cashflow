@@ -8,14 +8,15 @@ triển khai trên GitHub Pages, dữ liệu dùng chung qua Firebase (gói Spar
 
 | Tab | Nội dung |
 |---|---|
-| Tổng quan | Số dư đầu, số dư thấp nhất, số ngày dưới ngưỡng, khoản chi đưa vào kế hoạch, khoản chờ xem xét, lỗi dữ liệu; cài đặt ngày và ngưỡng |
+| Tổng quan | Số dư đầu, số dư thấp nhất, số ngày dưới ngưỡng, khoản chi đưa vào kế hoạch, khoản chờ xem xét, lỗi dữ liệu; biểu đồ dòng tiền theo tuần (bộ lọc tháng); cài đặt ngày và ngưỡng |
 | Kế hoạch ngày | Daily Plan: số dư VND/USD từng ngày, cảnh báo dưới ngưỡng, gợi ý FX (bấm để thêm giao dịch) |
 | Chi tiết ngày | Các khoản chi trong một ngày |
 | Thanh toán | Payment Request List: lọc, sửa ngày Lena/ngày chi, danh mục, dự án, cờ; thêm khoản mới |
 | Thu, Giao dịch FX, Điều chỉnh NH | Nhập, xem, xóa các dòng Receipts, FX Transactions, Bank Adjustments |
 | Đối chiếu | Số dư thực tế theo sao kê, so với kế hoạch, dung sai |
 | Số dư đầu | Số dư đầu từng tài khoản, tỷ giá mặc định |
-| Kế hoạch tuần, Dòng tiền | Weekly Plan và Cashflow_Summary (USD'000K) với 28 tuần |
+| Lịch dòng tiền | Lịch tháng: thu, chi, số dư cuối ngày theo VND hoặc USD; bấm một ngày để xem chi tiết |
+| Kế hoạch tuần, Dòng tiền | Weekly Plan và Cashflow_Summary (USD'000K) với 28 tuần. Dòng tiền xem theo tuần hoặc theo tháng (tháng cộng 4 tuần; số đầu kỳ lấy tuần đầu, số cuối kỳ lấy tuần cuối) |
 | Opex | Opex Control theo tháng |
 | Kiểm tra dữ liệu | Lỗi của file gốc, các khác biệt có chủ ý so với file, khoản cần xem |
 | Nhập file | Đọc file `.xlsm` để nạp dữ liệu ban đầu |
@@ -61,6 +62,9 @@ npm test
 SVL_XLSM=/duong-dan/SVL_Payment_Ver6_Final_Ver_2.xlsm npm test
 ```
 
+Bản công khai trên GitHub không có thư mục `fixtures/` (dữ liệu nội bộ), nên các kiểm thử cần fixtures sẽ báo lỗi ENOENT
+ở đó. Chạy đầy đủ trên bản có fixtures và file gốc.
+
 Bộ kiểm thử so khớp với số liệu đã lưu của file Excel: 2.277 khoản, Daily Plan 71 dòng, Overview,
 Đối chiếu, Weekly, Cashflow và Opex. Các khác biệt đã biết được khẳng định rõ ràng trong kiểm thử, không bị bỏ qua.
 
@@ -99,9 +103,27 @@ Không đưa địa chỉ email thật vào mã nguồn công khai. Danh sách e
 
 - Tab **Nhập file**, chọn file `.xlsm`. Ứng dụng đọc các sheet: Overview, Opening Balances, Payment Request List,
   Receipts, FX Transactions, Bank Adjustments, Reconciliation, Opex Control.
-- Màn hình hiện số lượng đọc được. Bấm **Thay thế bằng dữ liệu này** mới ghi đè dữ liệu hiện có.
-  Các thay đổi nhập tay (kể cả đánh dấu “đã xử lý”) sẽ mất.
+- Màn hình hiện số lượng đọc được. Bấm **Thay thế bằng dữ liệu này** mới ghi đè dữ liệu hiện có, sau khi xác nhận
+  số bản ghi sẽ bị thay. Các thay đổi nhập tay (kể cả đánh dấu “đã xử lý”) sẽ mất.
+- Trước khi đọc, ứng dụng kiểm tra tiêu đề cột ở hàng 2 của sheet Payment Request List. Nếu file đã đổi bố cục,
+  ứng dụng dừng và báo ô nào sai, thay vì đọc nhầm dữ liệu.
+- Khi ghi lên Firebase, nếu mạng lỗi giữa chừng, ứng dụng báo số thao tác đã ghi. Lúc đó dữ liệu có thể chưa đầy đủ:
+  hãy nhập lại file.
 - Cột W (số tài khoản người nhận) không được nhập, cố ý.
+
+## Nhập dữ liệu trực tiếp
+
+Dữ liệu thêm bằng tay được kiểm tra trước khi ghi (`src/validate.js`):
+
+- **Khoản thanh toán:** bắt buộc mã (không trùng, không phân biệt hoa thường), số tiền > 0, tiền tệ VND/USD, danh mục
+  lấy từ danh sách (khoản thiếu danh mục không vào Cashflow). Hạn thanh toán không được trước ngày yêu cầu.
+- **Khoản thu:** số tiền > 0, tiền tệ VND/USD, bắt buộc danh mục. Danh mục mới (chưa có trong các khoản thu) được
+  cảnh báo và cần xác nhận, để tránh gõ sai làm khoản thu rơi khỏi Cashflow.
+- **Giao dịch FX:** USD và tỷ giá > 0, loại SELL/BUY USD. Nếu nhập VND lệch quá 1% so với USD × tỷ giá, cảnh báo.
+- **Điều chỉnh NH:** số tiền > 0 và chọn chiều IN/OUT (dấu do chiều quyết định).
+- **Sửa trực tiếp trong bảng Thanh toán:** không xóa trắng được danh mục.
+- **Nhập lại file Excel** xóa toàn bộ dữ liệu nhập tay. Hộp xác nhận nêu số khoản thanh toán nhập tay và số dòng thu,
+  FX, điều chỉnh NH sẽ bị thay. Muốn giữ lại, hãy ghi lại trước khi nhập.
 
 ## Cách tính (tóm tắt)
 
