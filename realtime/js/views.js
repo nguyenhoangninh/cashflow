@@ -182,9 +182,38 @@ function viewCloudEmpty(s) {
     <p>Chưa có bản Cashflow được Admin nhập. Người dùng Viewer và Editor không thể nhập thay dữ liệu chung.</p>
   </div>`;
 }
+// Guarded overwrite of the shared Firestore data: compare counts, require a backup
+// acknowledgement and the phrase "GHI ĐÈ", then confirm in the browser.
+function overwriteBlock(s, p, historyReady) {
+  const cur = s.ds || {};
+  const rows = [
+    ['Khoản chi', 'payments', (x) => x.payments?.length ?? 0],
+    ['Khoản thu', 'receipts', (x) => x.receipts?.length ?? 0],
+    ['Giao dịch FX', 'fx', (x) => x.fx?.length ?? 0],
+    ['Điều chỉnh NH', 'bankAdj', (x) => x.bankAdj?.length ?? 0],
+    ['Dòng Opex', 'opex', (x) => x.opex?.length ?? 0],
+    ['Tài khoản', 'accounts', (x) => x.accounts?.length ?? 0],
+    ['Đối chiếu', 'recon', (x) => Object.keys(x.recon || {}).length],
+  ];
+  const table = `<table class="dense"><thead><tr><th>Mục</th><th class="num">Đang có trên Firestore</th><th class="num">Sẽ thay bằng file</th></tr></thead><tbody>
+    ${rows.map(([label, , count]) => `<tr><td>${esc(label)}</td><td class="num">${fmtInt(count(cur))}</td><td class="num">${fmtInt(count(p))}</td></tr>`).join('')}
+  </tbody></table>`;
+  const isAdmin = s.status?.role === 'admin';
+  const ready = isAdmin && historyReady && s.overwriteAck && s.overwritePhrase === 'GHI ĐÈ';
+  return `<div class="card danger-zone">
+    <h3>Ghi đè dữ liệu đang dùng chung</h3>
+    <p class="warn">Firestore đã có dữ liệu. Ghi đè sẽ thay toàn bộ dữ liệu chung bằng file này và xóa bản ghi cũ không còn trong file. Sao lưu JSON trước (nút phía trên).</p>
+    ${table}
+    <label class="check"><input type="checkbox" data-change="overwrite-ack"${s.overwriteAck ? ' checked' : ''}> Tôi đã tải bản sao lưu JSON hiện tại về máy và đã kiểm tra file nhập.</label>
+    <label>Gõ <b>GHI ĐÈ</b> để xác nhận <input type="text" data-change="overwrite-phrase" value="${esc(s.overwritePhrase || '')}" autocomplete="off"></label>
+    <button class="danger" data-action="overwrite-confirm"${ready ? '' : ' disabled'}>Ghi đè Firestore bằng file này</button>
+  </div>`;
+}
+
 function viewImport(s) {
   const p = s.importPreview;
   const cloud = s.status?.mode === 'cloud';
+  const hasCloudData = cloud && !!s.ds?.importedAt;
   const historyReady = !!(p && p.cashflowOpening != null && Object.keys(p.cashflowActuals || {}).length);
   const preview = p ? `<div class="card">
       <h3>Xem trước dữ liệu từ file</h3>
@@ -197,7 +226,7 @@ function viewImport(s) {
       </ul>
       <p class="warn">${cloud ? 'Chỉ Admin được nhập dữ liệu vào Firestore trống. Không đóng tab trong khi chuyển dữ liệu.' : 'Thao tác này thay thế dữ liệu của trình duyệt.'}</p>
       ${!historyReady ? '<p class="notice bad">Thiếu lịch sử Cashflow. Hãy chọn bản sao lưu JSON đầy đủ mới hoặc file Excel có Cashflow_Summary.</p>' : ''}
-      <button class="primary" data-action="import-confirm"${!historyReady || (cloud && s.status?.role !== 'admin') ? ' disabled' : ''}>Nhập dữ liệu lên ${cloud ? 'Firestore' : 'trình duyệt'}</button>
+      ${hasCloudData ? overwriteBlock(s, p, historyReady) : `<button class="primary" data-action="import-confirm"${!historyReady || (cloud && s.status?.role !== 'admin') ? ' disabled' : ''}>Nhập dữ liệu lên ${cloud ? 'Firestore' : 'trình duyệt'}</button>`}
       <button data-action="import-cancel">Hủy</button>
     </div>` : '';
   return `<div class="card">

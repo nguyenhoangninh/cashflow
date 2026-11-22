@@ -523,3 +523,11 @@ table.cf td.num { padding-right: 10px; }
 /* Privacy-first manual AI export */
 .ai-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
 .ai-tools button { cursor: pointer; }
+
+/* ---------- Ghi đè dữ liệu dùng chung (có xác nhận) ---------- */
+.danger-zone { border-color: var(--warn-line); }
+.danger-zone label { display: block; margin: 10px 0; }
+.danger-zone label.check { display: flex; gap: 8px; align-items: flex-start; }
+.danger-zone input[type="text"] { margin-left: 6px; padding: 6px 8px; width: 160px; }
+button.danger { background: #b3261e; color: #ffffff; border-color: #b3261e; }
+button.danger:disabled { opacity: 0.5; cursor: not-allowed; }
