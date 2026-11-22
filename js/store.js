@@ -318,9 +318,9 @@ export async function createCloudStore(cfg) {
       emit();
     },
 
-    async replaceAll(next) {
+    async replaceAll(next, { overwrite = false } = {}) {
       requireRole(['admin']);
-      if (ds?.importedAt) {
+      if (ds?.importedAt && !overwrite) {
         throw new Error('Firestore đã có dữ liệu. Không được tự động ghi đè dữ liệu đang dùng chung.');
       }
       const clean = withDefaults(next);
@@ -341,13 +341,31 @@ export async function createCloudStore(cfg) {
       }, { merge: true });
       try {
         const ops = [];
+        const keep = Object.fromEntries(ALL_COLLECTIONS.map((c) => [c, new Set()]));
         for (const coll of LIST_COLLECTIONS) for (const item of clean[coll]) {
+          keep[coll].add(docKey(item.id));
           ops.push(batch => batch.set(fsMod.doc(db, coll, docKey(item.id)), item));
         }
         for (const [date, row] of Object.entries(clean.recon || {})) {
+          keep.recon.add(docKey(date));
           ops.push(batch => batch.set(fsMod.doc(db, 'recon', docKey(date)), { ...row, date }));
         }
         await batchWrite(ops);
+        if (overwrite) {
+          // Remove documents that the new file no longer contains.
+          const stale = [];
+          for (const coll of ALL_COLLECTIONS) {
+            const snap = await fsMod.getDocs(fsMod.collection(db, coll));
+            for (const d of snap.docs) if (!keep[coll].has(d.id)) stale.push(fsMod.doc(db, coll, d.id));
+          }
+          status.message = `Đang xóa ${stale.length} bản ghi cũ không còn trong file…`;
+          emit();
+          for (let i = 0; i < stale.length; i += 10) {
+            const batch = fsMod.writeBatch(db);
+            stale.slice(i, i + 10).forEach((ref) => batch.delete(ref));
+            await batch.commit();
+          }
+        }
         // The final config is last; the app becomes readable only after it succeeds.
         await fsMod.setDoc(fsMod.doc(db, 'config', 'main'), {
           settings: clean.settings, fxDefaults: clean.fxDefaults,

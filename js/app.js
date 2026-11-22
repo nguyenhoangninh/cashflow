@@ -26,6 +26,8 @@ const state = {
   dayKey: null,
   importPreview: null,
   importStatus: '',
+  overwriteAck: false,
+  overwritePhrase: '',
   recoveryImport: false,
   importSource: null,
   message: '',
@@ -336,7 +338,30 @@ async function onClick(e) {
         break;
       }
 
+      case 'overwrite-confirm': {
+        if (state.status?.role !== 'admin') throw new Error('Chỉ Admin được ghi đè dữ liệu chung.');
+        if (!state.importPreview) throw new Error('Chưa chọn dữ liệu để nhập.');
+        if (!state.overwriteAck) throw new Error('Hãy xác nhận đã sao lưu dữ liệu hiện tại.');
+        if (state.overwritePhrase !== 'GHI ĐÈ') throw new Error('Gõ đúng cụm từ GHI ĐÈ để xác nhận.');
+        const n = Object.values(state.importPreview).reduce((a, v) => a + (Array.isArray(v) ? v.length : 0), 0);
+        if (!window.confirm(`Ghi đè TOÀN BỘ dữ liệu Firestore dùng chung bằng ${n} bản ghi từ file này? Dữ liệu cũ không còn trong file sẽ bị xóa. Không hoàn tác được.`)) break;
+        await store.replaceAll(state.importPreview, { overwrite: true });
+        state.importPreview = null;
+        state.importSource = null;
+        state.importStatus = '';
+        state.recoveryImport = false;
+        state.overwriteAck = false;
+        state.overwritePhrase = '';
+        setMessage('Đã ghi đè dữ liệu Firestore. Đợi màn hình báo đã đồng bộ.', 'ok');
+        state.view = 'overview';
+        location.hash = 'overview';
+        paint();
+        break;
+      }
+
       case 'import-cancel':
+        state.overwriteAck = false;
+        state.overwritePhrase = '';
         state.importSource = null;
         state.importPreview = null;
         state.importStatus = '';
@@ -443,6 +468,16 @@ async function onChange(e) {
         await store.upsert('opex', { id: item.id, months });
         break;
       }
+
+      case 'overwrite-ack':
+        state.overwriteAck = el.checked;
+        paint();
+        break;
+
+      case 'overwrite-phrase':
+        state.overwritePhrase = el.value.trim();
+        paint();
+        break;
 
       case 'cfmode':
         await store.patchSettings({ cfSourceLinks: el.value === 'source' });
