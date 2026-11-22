@@ -210,6 +210,9 @@ function overwriteBlock(s, p, historyReady) {
   </div>`;
 }
 
+// Shown on the import page so a stale cached build can be told apart from the current one.
+export const BUILD_ID = 'ghi-de-2026-11-22';
+
 function viewImport(s) {
   const p = s.importPreview;
   const cloud = s.status?.mode === 'cloud';
@@ -231,6 +234,7 @@ function viewImport(s) {
     </div>` : '';
   return `<div class="card">
       <h2>Nhập dữ liệu Cashflow (Excel hoặc bản sao lưu JSON)</h2>
+      <p class="muted small">Phiên bản giao diện: ${BUILD_ID}</p>
       <p>Chọn file <code>SVL_Payment_Ver6_Final_Ver_2.xlsm</code> (hoặc file cùng cấu trúc). Ứng dụng đọc các sheet
         Overview, Opening Balances, Payment Request List, Receipts, FX Transactions, Bank Adjustments,
         Reconciliation và Opex Control. Số tài khoản người nhận (cột W) không được nhập.</p>
