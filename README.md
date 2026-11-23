@@ -34,14 +34,27 @@ src/engine.js           phép tính (tái hiện công thức của file Excel)
 src/importer.js         đọc file .xlsm bằng SheetJS
 src/structure.js        cấu trúc tuần, danh mục, dòng Cashflow (lấy từ file)
 src/quality.js          báo cáo kiểm tra dữ liệu
-firebase-config.js      cấu hình Firebase (điền vào đây)
-firestore.rules         luật truy cập Firestore (danh sách email được phép)
+firebase-config.js      cấu hình Firebase (chỉ có khóa công khai của dự án)
+firestore.rules         luật truy cập Firestore MẪU (email giả, xem mục Bảo trì)
 manifest.json, sw.js    cài đặt như ứng dụng (PWA) và dùng khi mất mạng
 vendor/xlsx.full.min.js SheetJS 0.18.5 (đọc Excel)
-fixtures/               dữ liệu và số liệu Excel dùng để kiểm thử
+realtime/index.html     chỉ chuyển hướng về trang chính; không còn bản mã riêng
+fixtures/               dữ liệu và số liệu Excel dùng để kiểm thử (không đưa lên repo công khai)
 tests/                  kiểm thử (engine, quality, giao diện)
 build/make_dataset.mjs  tạo fixtures/dataset.json từ file Excel
 ```
+
+Chỉ có **một** bản mã: thư mục gốc. Bản `realtime/` cũ đã được gỡ; mọi chỉnh sửa làm ở thư mục gốc.
+
+## Bảo trì: ghi đè dữ liệu Firebase đang tạm khóa
+
+- Ghi đè toàn bộ dữ liệu dùng chung trên Firestore **đang tắt** (cờ `overwriteEnabled` trong `js/app.js`).
+  Lý do: thao tác hiện tại không nguyên tử (ghi nhiều đợt, xóa sau khi ghi, không có checksum). Xem báo cáo audit.
+- Khi tắt, màn Nhập dữ liệu không hiện nút ghi đè. Nhập lần đầu vào Firestore trống vẫn hoạt động.
+- Muốn bật lại: chỉ làm sau khi có import phiên bản (staging + chuyển con trỏ trong một giao dịch), kiểm tra
+  số lượng và tổng theo tiền tệ, và có kế hoạch khôi phục.
+- `firestore.rules` trong repo là **mẫu**. Không deploy nguyên trạng: thay danh sách email hoặc chuyển sang
+  kiểm tra vai trò trong `members/{UID}` rồi kiểm thử bằng Firebase Emulator trước khi publish.
 
 ## Chạy thử trên máy
 
@@ -103,8 +116,9 @@ Không đưa địa chỉ email thật vào mã nguồn công khai. Danh sách e
 
 - Tab **Nhập file**, chọn file `.xlsm`. Ứng dụng đọc các sheet: Overview, Opening Balances, Payment Request List,
   Receipts, FX Transactions, Bank Adjustments, Reconciliation, Opex Control.
-- Màn hình hiện số lượng đọc được. Bấm **Thay thế bằng dữ liệu này** mới ghi đè dữ liệu hiện có, sau khi xác nhận
+- Màn hình hiện số lượng đọc được. Ở chế độ trình duyệt, nhập file thay thế dữ liệu cục bộ sau khi xác nhận
   số bản ghi sẽ bị thay. Các thay đổi nhập tay (kể cả đánh dấu “đã xử lý”) sẽ mất.
+  Ở chế độ Firebase đã có dữ liệu, ghi đè đang tạm khóa (xem mục Bảo trì).
 - Trước khi đọc, ứng dụng kiểm tra tiêu đề cột ở hàng 2 của sheet Payment Request List. Nếu file đã đổi bố cục,
   ứng dụng dừng và báo ô nào sai, thay vì đọc nhầm dữ liệu.
 - Khi ghi lên Firebase, nếu mạng lỗi giữa chừng, ứng dụng báo số thao tác đã ghi. Lúc đó dữ liệu có thể chưa đầy đủ:
