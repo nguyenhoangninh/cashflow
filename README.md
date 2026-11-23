@@ -53,9 +53,11 @@ Chỉ có **một** bản mã: thư mục gốc. Bản `realtime/` cũ đã đư
 - Khi tắt, màn Nhập dữ liệu không hiện nút ghi đè. Nhập lần đầu vào Firestore trống vẫn hoạt động.
 - Muốn bật lại: chỉ làm sau khi có import phiên bản (staging + chuyển con trỏ trong một giao dịch), kiểm tra
   số lượng và tổng theo tiền tệ, và có kế hoạch khôi phục.
-- `firestore.rules` trong repo là bản **nháp v2** theo vai trò trong `members/{UID}`. Chưa kiểm thử bằng
-  Firebase Emulator. Không publish khi chưa: sao lưu luật đang publish, chạy emulator (xem audit T01–T04, T07),
-  và kiểm tra thao tác của Editor trên bảng Thanh toán.
+- `firestore.rules` trong repo là **đúng bản đang publish trên Firebase** (publish 17/11/2026, 3:31 PM).
+  Bản nháp v2 có kiểm tra dữ liệu và nhật ký audit nằm ở commit `a355c09`, chưa đưa vào. Chỉ publish bản nháp
+  sau khi `npm run test:rules` đạt toàn bộ và đã sao lưu luật cũ.
+- Với luật hiện tại, `npm run test:rules` dự kiến báo lỗi ở khoảng 8 test: kiểm tra dữ liệu khi ghi (T07),
+  nhật ký audit, và Admin đọc `members` của người khác. Đây là các phần còn thiếu, không phải lỗi cấu hình.
 - Đã có nhưng app chưa dùng (hàm thuần, có kiểm thử):
   - `src/manifest.js`: số dòng, tổng theo tiền tệ, checksum; so khớp và liệt kê mọi sai lệch.
   - `src/audit.js`: bản ghi audit chỉ lưu các trường thay đổi.

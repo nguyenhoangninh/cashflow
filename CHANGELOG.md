@@ -2,6 +2,11 @@
 
 Phiên bản giao diện hiển thị ở trang Nhập dữ liệu (`BUILD_ID` trong `js/views.js`).
 
+## Luật Firestore đồng bộ với Firebase
+
+- `firestore.rules` trong repo khớp với luật đang publish (17/11/2026, 3:31 PM).
+- Bản nháp v2 (có kiểm tra dữ liệu và audit) vẫn có ở commit `a355c09`, chưa publish.
+
 ## Giai đoạn 2 (nháp, chưa dùng trong app)
 
 - `src/manifest.js`: số dòng, tổng theo tiền tệ và checksum SHA-256 của dataset; so khớp và liệt kê mọi sai lệch.
