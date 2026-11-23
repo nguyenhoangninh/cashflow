@@ -183,7 +183,7 @@ function viewCloudEmpty(s) {
   </div>`;
 }
 // Shown on the import page so a stale cached build can be told apart from the current one.
-export const BUILD_ID = 'ghi-de-2026-11-22';
+export const BUILD_ID = 'khoa-ghi-de-2026-11-23';
 
 // Guarded overwrite of the shared Firestore data: compare counts, require a backup
 // acknowledgement and the phrase "GHI ĐÈ", then confirm in the browser.
@@ -202,7 +202,14 @@ function overwriteBlock(s, p, historyReady) {
     ${rows.map(([label, , count]) => `<tr><td>${esc(label)}</td><td class="num">${fmtInt(count(cur))}</td><td class="num">${fmtInt(count(p))}</td></tr>`).join('')}
   </tbody></table>`;
   const isAdmin = s.status?.role === 'admin';
-  const ready = isAdmin && historyReady && s.overwriteAck && s.overwritePhrase === 'GHI ĐÈ';
+  const enabled = s.overwriteEnabled === true;
+  const ready = enabled && isAdmin && historyReady && s.overwriteAck && s.overwritePhrase === 'GHI ĐÈ';
+  if (!enabled) {
+    return `<div class="card danger-zone">
+    <h3>Ghi đè dữ liệu đang dùng chung</h3>
+    <p class="warn">Tạm khóa: dữ liệu đang dùng chung không được ghi đè từ giao diện trong giai đoạn bảo trì. Cần cập nhật thì liên hệ người quản trị kỹ thuật.</p>
+  </div>`;
+  }
   return `<div class="card danger-zone">
     <h3>Ghi đè dữ liệu đang dùng chung</h3>
     <p class="warn">Firestore đã có dữ liệu. Ghi đè sẽ thay toàn bộ dữ liệu chung bằng file này và xóa bản ghi cũ không còn trong file. Sao lưu JSON trước (nút phía trên).</p>

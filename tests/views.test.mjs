@@ -264,21 +264,34 @@ test('settings screen holds the planning dates and thresholds, not the overview'
   assert.ok(TABS.some(([id]) => id === 'settings'));
 });
 
+test('cloud data already present: overwrite is locked by default (maintenance)', () => {
+  const cloud = { mode: 'cloud', state: 'ready', role: 'admin', sync: 'server' };
+  const user = { uid: 'test-admin' };
+  const dataWithStamp = { ...ds, importedAt: '2026-11-22T04:00:00.000Z' };
+  const withHistory = { ...ds, cashflowOpening: 1000, cashflowActuals: { W1: 1 } };
+  const off = render('import', { ...state, user, status: cloud, ds: dataWithStamp, importPreview: withHistory, overwriteAck: true, overwritePhrase: 'GHI ĐÈ' });
+  assert.ok(off.includes('Ghi đè dữ liệu đang dùng chung'));
+  assert.ok(off.includes('Tạm khóa'));
+  assert.doesNotMatch(off, /data-action="overwrite-confirm"/);
+  assert.doesNotMatch(off, /data-change="overwrite-phrase"/);
+});
+
 test('cloud data already present: the overwrite form stays locked until backup, phrase and admin role are all in place', () => {
   const cloud = { mode: 'cloud', state: 'ready', role: 'admin', sync: 'server' };
   const user = { uid: 'test-admin' };
   const dataWithStamp = { ...ds, importedAt: '2026-11-22T04:00:00.000Z' };
   const withHistory = { ...ds, cashflowOpening: 1000, cashflowActuals: { W1: 1 } };
-  const locked = render('import', { ...state, user, status: cloud, ds: dataWithStamp, importPreview: ds, overwriteAck: false, overwritePhrase: '' });
+  const on = { ...state, overwriteEnabled: true, user, status: cloud, ds: dataWithStamp };
+  const locked = render('import', { ...on, importPreview: ds, overwriteAck: false, overwritePhrase: '' });
   assert.ok(locked.includes('Ghi đè dữ liệu đang dùng chung'));
   assert.ok(!locked.includes('Nhập dữ liệu lên Firestore'));
   assert.match(locked, /data-action="overwrite-confirm" disabled/);
-  const wrongPhrase = render('import', { ...state, user, status: cloud, ds: dataWithStamp, importPreview: ds, overwriteAck: true, overwritePhrase: 'ghi de' });
+  const wrongPhrase = render('import', { ...on, importPreview: ds, overwriteAck: true, overwritePhrase: 'ghi de' });
   assert.match(wrongPhrase, /data-action="overwrite-confirm" disabled/);
-  const ready = render('import', { ...state, user, status: cloud, ds: dataWithStamp, importPreview: withHistory, overwriteAck: true, overwritePhrase: 'GHI ĐÈ' });
+  const ready = render('import', { ...on, importPreview: withHistory, overwriteAck: true, overwritePhrase: 'GHI ĐÈ' });
   assert.doesNotMatch(ready, /data-action="overwrite-confirm" disabled/);
-  const noHistory = render('import', { ...state, user, status: cloud, ds: dataWithStamp, importPreview: ds, overwriteAck: true, overwritePhrase: 'GHI ĐÈ' });
+  const noHistory = render('import', { ...on, importPreview: ds, overwriteAck: true, overwritePhrase: 'GHI ĐÈ' });
   assert.match(noHistory, /data-action="overwrite-confirm" disabled/);
-  const notAdmin = render('import', { ...state, user, status: { ...cloud, role: 'editor' }, ds: dataWithStamp, importPreview: ds, overwriteAck: true, overwritePhrase: 'GHI ĐÈ' });
+  const notAdmin = render('import', { ...on, status: { ...cloud, role: 'editor' }, importPreview: ds, overwriteAck: true, overwritePhrase: 'GHI ĐÈ' });
   assert.match(notAdmin, /data-action="overwrite-confirm" disabled/);
 });

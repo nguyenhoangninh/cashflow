@@ -26,6 +26,8 @@ const state = {
   dayKey: null,
   importPreview: null,
   importStatus: '',
+  // Ghi đè Firestore đang tắt: chỉ bật lại sau khi sao lưu đầy đủ và có quy trình ghi đè nguyên tử (audit F03).
+  overwriteEnabled: false,
   overwriteAck: false,
   overwritePhrase: '',
   recoveryImport: false,
@@ -339,6 +341,7 @@ async function onClick(e) {
       }
 
       case 'overwrite-confirm': {
+        if (!state.overwriteEnabled) throw new Error('Ghi đè dữ liệu chung đang tạm khóa. Xem ghi chú bảo trì trong README.');
         if (state.status?.role !== 'admin') throw new Error('Chỉ Admin được ghi đè dữ liệu chung.');
         if (!state.importPreview) throw new Error('Chưa chọn dữ liệu để nhập.');
         if (!state.overwriteAck) throw new Error('Hãy xác nhận đã sao lưu dữ liệu hiện tại.');

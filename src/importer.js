@@ -52,6 +52,15 @@ export function importWorkbook(XLSX, buffer) {
   const ob = get(need('Opening Balances'));
   const pl = need('Payment Request List');
   const plg = get(pl);
+  // Guard against a moved or re-laid-out source sheet: the fixed cell addresses below are only valid
+  // when these header labels (row 2) are where we expect them.
+  const PRL_HEADERS = { B: 'item no', E: 'amount', F: 'currency', J: 'payee', S: 'actual', AB: 'include', AD: 'plan date', AJ: 'summary category' };
+  for (const [col, key] of Object.entries(PRL_HEADERS)) {
+    const got = String(plg(`${col}2`) ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!got.includes(key)) {
+      throw new Error(`Sai bố cục sheet "Payment Request List": ô ${col}2 phải là "${key}…" nhưng đọc được "${got || '(trống)'}". Kiểm tra lại file gốc trước khi nhập.`);
+    }
+  }
   const rcWs = need('Receipts');
   const rcg = get(rcWs);
   const fxg = get(need('FX Transactions'));
