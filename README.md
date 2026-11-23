@@ -56,10 +56,15 @@ Chỉ có **một** bản mã: thư mục gốc. Bản `realtime/` cũ đã đư
 - `firestore.rules` trong repo là bản **nháp v2** theo vai trò trong `members/{UID}`. Chưa kiểm thử bằng
   Firebase Emulator. Không publish khi chưa: sao lưu luật đang publish, chạy emulator (xem audit T01–T04, T07),
   và kiểm tra thao tác của Editor trên bảng Thanh toán.
-- Đã có nhưng app chưa dùng: `src/manifest.js` (số dòng, tổng theo tiền tệ, checksum) và `src/audit.js`
-  (bản ghi audit chỉ lưu các trường thay đổi). Kiểm thử: `node --test tests/phase2.test.mjs`.
-- Chưa có: dataset staging và chuyển con trỏ phiên bản; ghi từng trường bằng transaction; app ghi `auditEvents`;
-  khóa số dư đầu kỳ (`accounts`) chỉ cho Admin, phải đổi cùng lúc với app.
+- Đã có nhưng app chưa dùng (hàm thuần, có kiểm thử):
+  - `src/manifest.js`: số dòng, tổng theo tiền tệ, checksum; so khớp và liệt kê mọi sai lệch.
+  - `src/audit.js`: bản ghi audit chỉ lưu các trường thay đổi.
+  - `src/staging.js`: lập kế hoạch ghi dữ liệu vào `datasets/{phiên bản}`, kiểm tra lại sau khi đọc, kế hoạch
+    kích hoạt và khôi phục bằng con trỏ `config/active` (có điều kiện: chỉ đổi nếu con trỏ còn như đã đọc).
+  - `src/revision.js`: sửa một document theo `rev`, phát hiện xung đột và báo trường khác biệt.
+  - Kiểm thử: `node --test tests/phase2.test.mjs tests/phase2b.test.mjs`.
+- Chưa có: nối `src/staging.js` và `src/revision.js` vào store (cần Emulator); app ghi `auditEvents`;
+  khóa số dư đầu kỳ (`accounts`) chỉ cho Admin, phải đổi cùng lúc với app; Rules yêu cầu `rev`.
 
 ## Chạy thử trên máy
 

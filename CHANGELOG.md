@@ -9,6 +9,9 @@ Phiên bản giao diện hiển thị ở trang Nhập dữ liệu (`BUILD_ID` t
 - `firestore.rules`: bản nháp v2 theo `members/{UID}`, kiểm tra hình dạng dữ liệu, `auditEvents` chỉ thêm được.
   Chưa kiểm thử bằng Emulator; chưa publish.
 - `tests/phase2.test.mjs`: 12 kiểm thử cho manifest và audit.
+- `src/staging.js`: kế hoạch ghi dữ liệu theo phiên bản, kiểm tra lại sau khi đọc, kích hoạt và khôi phục có điều kiện.
+- `src/revision.js`: sửa theo `rev` (khóa lạc quan), phát hiện xung đột.
+- `tests/phase2b.test.mjs`: 14 kiểm thử cho staging và revision. Chưa nối vào store.
 
 ## khoa-ghi-de-2026-11-23 (giai đoạn 0–1 của audit)
 
