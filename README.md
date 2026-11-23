@@ -65,6 +65,16 @@ Chỉ có **một** bản mã: thư mục gốc. Bản `realtime/` cũ đã đư
   - Kiểm thử: `node --test tests/phase2.test.mjs tests/phase2b.test.mjs`.
 - Chưa có: nối `src/staging.js` và `src/revision.js` vào store (cần Emulator); app ghi `auditEvents`;
   khóa số dư đầu kỳ (`accounts`) chỉ cho Admin, phải đổi cùng lúc với app; Rules yêu cầu `rev`.
+- **Kiểm thử Rules (T01–T04, T07, audit):** `tests/rules.test.mjs`. Cần Java 11 trở lên và kết nối Internet để
+  Firebase tải Emulator lần đầu. Chạy trong thư mục repo:
+
+  ```bash
+  npm install
+  npm run test:rules
+  ```
+
+  Không có Emulator thì các test này được bỏ qua (`npm test` vẫn chạy bình thường). Kết quả mong đợi: 20 test
+  đạt. Gửi lại kết quả đầy đủ nếu có test lỗi; không được publish `firestore.rules` khi còn lỗi.
 
 ## Chạy thử trên máy
 

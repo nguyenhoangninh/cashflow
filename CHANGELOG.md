@@ -12,6 +12,7 @@ Phiên bản giao diện hiển thị ở trang Nhập dữ liệu (`BUILD_ID` t
 - `src/staging.js`: kế hoạch ghi dữ liệu theo phiên bản, kiểm tra lại sau khi đọc, kích hoạt và khôi phục có điều kiện.
 - `src/revision.js`: sửa theo `rev` (khóa lạc quan), phát hiện xung đột.
 - `tests/phase2b.test.mjs`: 14 kiểm thử cho staging và revision. Chưa nối vào store.
+- `tests/rules.test.mjs`: 20 kiểm thử Rules trên Firestore Emulator (`npm run test:rules`). Chưa chạy được trong sandbox.
 
 ## khoa-ghi-de-2026-11-23 (giai đoạn 0–1 của audit)
 
