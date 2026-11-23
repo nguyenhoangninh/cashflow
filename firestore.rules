@@ -1,20 +1,123 @@
 rules_version = '2';
 
-// Only the Google accounts listed below can read or change the forecast data.
-// Replace the placeholder addresses with the real accounts before deploying.
+// SVL Cashflow: access is decided by members/{UID}.role (admin | editor | viewer).
+// Roles are assigned only in the Firebase Console, never by the app. Nothing in this repository lists real emails.
+//
+// STATUS: draft. Not verified with the Firestore Emulator yet (audit F02, tests T01–T04, T07, T12).
+// Do not publish until the emulator tests pass and the currently published rules are backed up.
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    function allowedUser() {
-      return request.auth != null
-        && request.auth.token.email_verified == true
-        && request.auth.token.email in [
-          'finance-user-1@example.com',
-          'finance-user-2@example.com'
-        ];
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
     }
 
+    function memberRole() {
+      return signedIn() && exists(/databases/$(database)/documents/members/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/members/$(request.auth.uid)).data.role
+        : null;
+    }
+
+    function isViewer() { return memberRole() in ['admin', 'editor', 'viewer']; }
+    function canEdit()  { return memberRole() in ['admin', 'editor']; }
+    function isAdmin()  { return memberRole() == 'admin'; }
+
+    function isCurrency(v) { return v in ['VND', 'USD']; }
+
+    // Row shape checks. They mirror src/validate.js, so a rule rejects what the UI would reject.
+    function validPayment(d) {
+      return d.keys().hasAll(['id', 'item', 'amount', 'currency'])
+        && d.id is string && d.id.size() > 0
+        && d.amount is number && d.amount > 0
+        && isCurrency(d.currency);
+    }
+    function validReceipt(d) {
+      return d.keys().hasAll(['id', 'date', 'amount', 'currency'])
+        && d.id is string && d.id.size() > 0
+        && d.amount is number && d.amount > 0
+        && isCurrency(d.currency);
+    }
+    function validFx(d) {
+      return d.keys().hasAll(['id', 'date', 'usd', 'rate', 'type'])
+        && d.usd is number && d.usd > 0
+        && d.rate is number && d.rate > 0
+        && d.type in ['SELL USD', 'BUY USD'];
+    }
+    function validBankAdj(d) {
+      return d.keys().hasAll(['id', 'date', 'amount', 'currency', 'direction'])
+        && d.amount is number && d.amount > 0
+        && isCurrency(d.currency)
+        && d.direction in ['IN', 'OUT'];
+    }
+    function validWithId(d) {
+      return d.keys().hasAll(['id']) && d.id is string && d.id.size() > 0;
+    }
+
+    // Configuration and opening data: admins only. Viewers and editors can read, never write.
+    match /config/{doc} {
+      allow read: if isViewer();
+      allow write: if isAdmin();
+    }
+
+    // Membership: a user reads only their own entry; admins read all; no client writes.
+    match /members/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if false;
+    }
+
+    // Transaction lists: viewers read; admins and editors write, with shape checks.
+    match /payments/{id} {
+      allow read: if isViewer();
+      allow create, update: if canEdit() && validPayment(request.resource.data);
+      allow delete: if canEdit();
+    }
+    match /receipts/{id} {
+      allow read: if isViewer();
+      allow create, update: if canEdit() && validReceipt(request.resource.data);
+      allow delete: if canEdit();
+    }
+    match /fx/{id} {
+      allow read: if isViewer();
+      allow create, update: if canEdit() && validFx(request.resource.data);
+      allow delete: if canEdit();
+    }
+    match /bankAdj/{id} {
+      allow read: if isViewer();
+      allow create, update: if canEdit() && validBankAdj(request.resource.data);
+      allow delete: if canEdit();
+    }
+    match /opex/{id} {
+      allow read: if isViewer();
+      allow create, update: if canEdit() && validWithId(request.resource.data);
+      allow delete: if canEdit();
+    }
+    // Account balances are opening data. The app currently lets editors change them, and the audit asks
+    // for admin only. Change this block together with the app, not before.
+    match /accounts/{id} {
+      allow read: if isViewer();
+      allow create, update: if canEdit() && validWithId(request.resource.data);
+      allow delete: if canEdit();
+    }
+    // Reconciliation rows are keyed by date and store the date as a field (not as "id").
+    match /recon/{date} {
+      allow read: if isViewer();
+      allow create, update: if canEdit() && request.resource.data.keys().hasAll(['date']);
+      allow delete: if canEdit();
+    }
+
+    // Audit trail: append-only. Each record names its author, and its time comes from the server.
+    match /auditEvents/{eventId} {
+      allow read: if isAdmin();
+      allow create: if canEdit()
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.at == request.time;
+      allow update, delete: if false;
+    }
+
+    // Everything else is closed.
     match /{document=**} {
-      allow read, write: if allowedUser();
+      allow read, write: if false;
     }
   }
 }

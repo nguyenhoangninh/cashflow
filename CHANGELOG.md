@@ -2,6 +2,14 @@
 
 Phiên bản giao diện hiển thị ở trang Nhập dữ liệu (`BUILD_ID` trong `js/views.js`).
 
+## Giai đoạn 2 (nháp, chưa dùng trong app)
+
+- `src/manifest.js`: số dòng, tổng theo tiền tệ và checksum SHA-256 của dataset; so khớp và liệt kê mọi sai lệch.
+- `src/audit.js`: bản ghi audit chỉ lưu các trường thay đổi, kiểm tra đầu vào.
+- `firestore.rules`: bản nháp v2 theo `members/{UID}`, kiểm tra hình dạng dữ liệu, `auditEvents` chỉ thêm được.
+  Chưa kiểm thử bằng Emulator; chưa publish.
+- `tests/phase2.test.mjs`: 12 kiểm thử cho manifest và audit.
+
 ## khoa-ghi-de-2026-11-23 (giai đoạn 0–1 của audit)
 
 - Tạm khóa ghi đè dữ liệu Firestore dùng chung (cờ `overwriteEnabled`, mặc định tắt).
